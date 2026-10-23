@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Trigemy · Montaj Takibi</title>
+<meta name="description" content="Trigemy eğitim videolarının montaj sürecini gösteren takip panosu.">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#11152b">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2311152b'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%236f80f7'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="style.css?v=5">
+<script>
+  // Verinin tutulduğu GitHub deposu (değişiklikler buradaki data.json'a kaydedilir)
+  window.TRIGEMY = { owner: "MonarkCo", repo: "Trigemy", branch: "main", path: "data.json" };
+</script>
+<script src="app.js?v=5" defer></script>
+</head>
+<body>
+<header class="masthead">
+  <div class="masthead-in">
+    <div class="brand">
+      <img src="logo.png" alt="Trigemy" width="140" height="45">
+      <span class="brand-sep" aria-hidden="true"></span>
+      <div class="brand-text">
+        <h1>Montaj Takibi</h1>
+        <p>Eğitim videolarının kurgu süreci</p>
+      </div>
+    </div>
+    <div class="mast-actions">
+      <span class="sync" id="sync" hidden></span>
+      <button class="btn ghost-dark" id="btn-mode" type="button">Düzenle</button>
+    </div>
+  </div>
+</header>
+
+<section class="lock" id="lock" hidden aria-labelledby="lock-title">
+  <form class="lock-card" id="lock-form">
+    <div class="lock-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
+    </div>
+    <h2 id="lock-title">Bu pano özel</h2>
+    <p class="muted">Montaj takibini görmek için sana verilen erişim anahtarını gir.</p>
+    <label><span class="sr">Erişim anahtarı</span><input id="lock-pass" type="password" autocomplete="current-password" placeholder="XXXX-XXXX-XXXX-XXXX" spellcheck="false" required></label>
+    <label class="check"><input id="lock-remember" type="checkbox" checked> Bu cihazda hatırla</label>
+    <p class="form-err" id="lock-err" role="alert"></p>
+    <button class="btn primary" type="submit" id="lock-btn">Aç</button>
+  </form>
+</section>
+
+<main class="wrap" id="main" hidden>
+  <section class="overview" aria-label="Genel durum">
+    <div class="progress-card">
+      <div class="ring" id="ring" role="img" aria-label="Tamamlanma oranı">
+        <svg viewBox="0 0 120 120" aria-hidden="true">
+          <circle cx="60" cy="60" r="52" class="ring-track"/>
+          <circle cx="60" cy="60" r="52" class="ring-val" id="ring-val"/>
+        </svg>
+        <div class="ring-label"><b id="pct">0%</b><span>tamamlandı</span></div>
+      </div>
+      <div class="progress-text">
+        <h2 id="done-line">—</h2>
+        <p id="sub-line">Veriler yükleniyor…</p>
+        <div class="stack" id="stack" aria-hidden="true"></div>
+        <ul class="legend" id="legend"></ul>
+      </div>
+    </div>
+    <div class="kpis" id="kpis"></div>
+  </section>
+
+  <section class="toolbar" aria-label="Görünüm ve filtre">
+    <div class="seg" role="group" aria-label="Görünüm">
+      <button type="button" data-view="pano" aria-pressed="true">Pano</button>
+      <button type="button" data-view="liste" aria-pressed="false">Liste</button>
+    </div>
+    <div class="seg" role="group" aria-label="Çekim türü" id="tur-seg">
+      <button type="button" data-tur="" aria-pressed="true">Tümü</button>
+      <button type="button" data-tur="Teorik" aria-pressed="false">Teorik</button>
+      <button type="button" data-tur="Klinik" aria-pressed="false">Klinik</button>
+      <button type="button" data-tur="Ofis" aria-pressed="false">Ofis</button>
+    </div>
+    <label class="search"><span class="sr">Eğitmen ara</span>
+      <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="6"/><path d="m14 14 4 4"/></svg>
+      <input id="q" type="search" placeholder="Eğitmen ara" autocomplete="off">
+    </label>
+    <button class="btn" id="btn-keys" type="button" hidden>Erişim anahtarları</button>
+    <button class="btn primary" id="btn-add" type="button" hidden>+ Yeni çekim</button>
+  </section>
+
+  <p class="banner" id="banner" hidden></p>
+
+  <section id="view-pano" class="board-scroll" aria-label="Montaj panosu"><div class="board" id="board"></div></section>
+  <section id="view-liste" class="table-wrap" aria-label="Montaj listesi" hidden>
+    <table class="table">
+      <thead><tr><th>#</th><th>Eğitmen</th><th>Çekim</th><th>Durum</th><th>Teslim</th><th>Güncelleme</th><th>Not</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </section>
+
+  <footer class="foot">
+    <span id="foot-upd">—</span>
+    <span>Trigemy · montaj takibi · <button class="linkish" type="button" id="btn-forget">Bu cihazda kilitle</button></span>
+  </footer>
+</main>
+
+<dialog id="dlg-item" class="sheet" aria-labelledby="item-title">
+  <form id="item-form" method="dialog">
+    <header class="sheet-head">
+      <div>
+        <p class="eyebrow" id="item-eyebrow">Çekim</p>
+        <h3 id="item-title">—</h3>
+      </div>
+      <button class="icon-btn" type="button" data-close aria-label="Kapat">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5 5 15"/></svg>
+      </button>
+    </header>
+
+    <div class="sheet-body" id="item-view"></div>
+
+    <div class="sheet-body" id="item-edit" hidden>
+      <label>Eğitmen<input id="f-egitmen" autocomplete="off" required></label>
+      <div class="grid2">
+        <label>Çekim türü<select id="f-tur"><option>Teorik</option><option>Klinik</option><option>Ofis</option></select></label>
+        <label>Durum<select id="f-durum"></select></label>
+      </div>
+      <div class="grid2">
+        <label>Sıra no<input id="f-sira" type="number" min="1" step="1" inputmode="numeric"></label>
+        <label>Teslim tarihi<input id="f-teslim" type="date"></label>
+      </div>
+      <label>Çekim adı <small>(isteğe bağlı)</small><input id="f-ad" autocomplete="off" placeholder="Ör. W&amp;H Ofis Çekimi"></label>
+      <label>İndirme linki <small>(myairbridge vb., yayındaki video)</small><input id="f-link" type="url" inputmode="url" autocomplete="off" placeholder="https://"></label>
+      <label class="check"><input id="f-disk" type="checkbox"> Medya başka diskte</label>
+      <label>Not<textarea id="f-not" rows="3" placeholder="Revize istekleri, eksik dosyalar, teslim notu…"></textarea></label>
+      <p class="form-err" id="f-err" role="alert"></p>
+    </div>
+
+    <div class="sheet-body extra" id="item-extra" hidden></div>
+
+    <footer class="sheet-foot" id="item-foot">
+      <button class="btn danger" type="button" id="btn-del">Sil</button>
+      <span class="del-confirm" id="del-confirm" hidden>Silinsin mi? <button class="btn danger solid" type="button" id="btn-del-yes">Evet, sil</button></span>
+      <span class="spacer"></span>
+      <button class="btn" type="button" data-close>Vazgeç</button>
+      <button class="btn primary" type="submit" id="btn-save">Kaydet</button>
+    </footer>
+  </form>
+</dialog>
+
+<dialog id="dlg-auth" class="sheet small" aria-labelledby="auth-title">
+  <form id="auth-form" method="dialog">
+    <header class="sheet-head">
+      <div><p class="eyebrow">Yalnız pano sahibi</p><h3 id="auth-title">Düzenleme modu</h3></div>
+      <button class="icon-btn" type="button" data-close aria-label="Kapat">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5 5 15"/></svg>
+      </button>
+    </header>
+    <div class="sheet-body">
+      <p class="muted">Değişiklikler GitHub deposundaki <code>data.json</code> dosyasına kaydedilir. Bu depo için yazma izni olan GitHub anahtarını (fine-grained token) gir. Anahtar yalnız bu tarayıcıda saklanır.</p>
+      <label>GitHub anahtarı<input id="f-token" type="password" autocomplete="off" spellcheck="false" required></label>
+      <p class="form-err" id="auth-err" role="alert"></p>
+    </div>
+    <footer class="sheet-foot">
+      <span class="spacer"></span>
+      <button class="btn" type="button" data-close>Vazgeç</button>
+      <button class="btn primary" type="submit" id="btn-auth">Bağlan</button>
+    </footer>
+  </form>
+</dialog>
+<dialog id="dlg-keys" class="sheet" aria-labelledby="keys-title">
+  <form id="key-form" method="dialog">
+    <header class="sheet-head">
+      <div><p class="eyebrow">Yalnız yönetici · <span id="key-count"></span></p><h3 id="keys-title">Erişim anahtarları</h3></div>
+      <button class="icon-btn" type="button" data-close aria-label="Kapat">
+        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5 5 15"/></svg>
+      </button>
+    </header>
+    <div class="sheet-body">
+      <p class="muted">Panoyu görebilecek her kişi için ayrı bir anahtar üret. Anahtarı silersen o kişi bir daha giremez, diğerleri etkilenmez.</p>
+      <div class="key-gen">
+        <label>Kimin için?<input id="f-keyname" autocomplete="off" placeholder="Ör. Ayça Yılmaz"></label>
+        <button class="btn primary" type="submit" id="btn-keygen">Anahtar üret</button>
+      </div>
+      <p class="form-err" id="key-err" role="alert"></p>
+      <div class="key-new" id="key-new" hidden>
+        <p class="eyebrow">Yeni anahtar · <span id="key-for"></span></p>
+        <code class="key-value" id="key-value"></code>
+        <p class="muted">Bu anahtar yalnız şimdi gösteriliyor. Kopyalayıp ilgili kişiye gönder.</p>
+        <div class="key-copy">
+          <button class="btn" type="button" id="btn-copy-key">Anahtarı kopyala</button>
+          <button class="btn" type="button" id="btn-copy-msg">Link + anahtar mesajını kopyala</button>
+        </div>
+      </div>
+      <p class="sec-title">Verilen anahtarlar</p>
+      <ul class="key-list" id="key-list"></ul>
+
+      <p class="sec-title">Revize dosyası yükleme</p>
+      <p class="muted">Hocaların revize dosyası yükleyebilmesi için ayrı bir GitHub deposu ve yalnız o depoya yazabilen bir anahtar gir. Dosyalar şifreli saklanır.</p>
+      <div class="grid2">
+        <label>Revize deposu<input id="f-rev-repo" autocomplete="off" spellcheck="false" placeholder="MonarkCo/Trigemy-revize"></label>
+        <label>Yükleme anahtarı<input id="f-rev-token" type="password" autocomplete="off" spellcheck="false"></label>
+      </div>
+      <div class="key-copy"><button class="btn" type="button" id="btn-rev-save">Kaydet</button></div>
+      <p class="form-err" id="rev-msg" role="status"></p>
+    </div>
+  </form>
+</dialog>
+</body>
+</html>
