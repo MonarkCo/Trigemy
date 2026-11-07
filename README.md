@@ -5,6 +5,7 @@ Adres: **https://monarkco.github.io/Trigemy/**
 
 - **Giriş:** Linki açan herkesin önüne anahtar ekranı gelir. Kullanıcı adı yok, yalnız `XXXX-XXXX-XXXX-XXXX` biçiminde bir erişim anahtarı girilir.
 - **Hocalar ve ekip:** Anahtarlarıyla girip gidişatı görür. Videosu olan kartta videoyu panoda izler; altına **yorum** ya da **revize isteği** yazar (isterse dosya ekler). Video oynatılmışsa yorum o ana bağlanır, ▶ 1:12 gibi zaman koduna tıklayınca video o ana gider. Yorumun yanında yazanın adı görünür: bu ad, kişinin erişim anahtarına verilen addır.
+- **Yabancı dil eğitmenleri:** Üstte iki sekme var: *Türkçe eğitmenler* ve *Yabancı dil eğitmenleri*. Kartın **Dil** alanına Türkçe dışında bir dil yazılırsa (İngilizce, Arapça…) kart yabancı dil sekmesine geçer; genel durum ve sayılar o sekmenin çekimlerini gösterir. Linkin sonuna `#yabanci` eklenirse sayfa doğrudan o sekmede açılır.
 - **Vimeo:** Montaj bitince videoyu Vimeo'ya koy; kart Montajlandı'ya geçince karttaki kutuya (ya da Düzenle penceresindeki *Vimeo linki* alanına) Vimeo linkini yapıştır; video kendiliğinden gelir. Liste dışı (unlisted) linkler ve gömme kodu da olur. Videoda Vimeo'nun gömme izni *Belirli alan adları* ise `monarkco.github.io` ekli olmalı.
 - **Yönetici (sen):** **Düzenle** ile kartları taşır, not ve link girer. **Erişim anahtarları** panelinden kişi başı anahtar üretir ya da siler.
 
@@ -35,7 +36,9 @@ Adres: **https://monarkco.github.io/Trigemy/**
 
 - GitHub anahtarlarının süresi dolunca (oluştururken seçtiğin süre) yenisini üretip aynı yerlere girmen yeterli.
 - Yönetici erişim anahtarını kaybedersen: başka bir geçerli anahtarla girip panelden yeni bir yönetici anahtarı üret. Bütün anahtarlar kaybolursa veriler açılamaz.
-- İzleyici sayfası 3 dakikada bir kendini tazeler.
+- Sayfa 3 dakikada bir kendini tazeler (düzenleyen kişide de: kaydedilmemiş değişiklik ya da açık pencere yokken). İzleyiciler veriyi sitedeki kopyadan okur; bir değişiklik onlara ~1 dk sonra görünür. Böylece aynı ofisten bakanlar GitHub'ın saatte 60 isteklik anahtarsız sınırına takılmaz.
+- Birden çok kişi aynı anda düzenleyebilir: kayıt sırasında başkası araya girdiyse güncel hal okunur, yalnız senin değiştirdiğin kartlar onun üstüne yazılır.
+- Depo herkese açık olduğu için kayıt açıklaması her zaman "Pano güncellendi"dir; hoca adı yazılmaz.
 - Durumlar: Montaj Bekliyor → Montajda → Montajlandı → Revizede → Yayında. Kart Montajlandı'ya taşınınca Vimeo linki sorulur; hocalar o videoyu izleyip revize yazar. Revizeden sonra Vimeo'daki videoyu yeni haliyle değiştir (aynı link kalır) ya da yeni linki gir; Yayında, bitmiş son haldir.
 - Kartta *Yeni revize* / *Yeni yorum* etiketi, kartı son güncellemenden sonra gelen kayıtları gösterir.
 - Dosyalar: `index.html` (sayfa ve depo ayarı), `style.css`, `app.js`, `data.json` (şifreli veri), `logo.png`, `sifrele.mjs` (ilk şifreleme).

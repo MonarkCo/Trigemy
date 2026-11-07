@@ -31,6 +31,7 @@ const S = {
   data: { cekimler: [] }, sha: null, loaded: false,
   token: store.get(TOKEN_KEY), edit: false,
   view: store.get("trigemy_view") || (matchMedia("(max-width: 680px)").matches ? "liste" : "pano"),
+  sekme: location.hash === "#yabanci" ? "yabanci" : location.hash === "#turkce" ? "tr" : store.get("trigemy_sekme") || "tr",
   tur: "", q: "", current: null, saveTimer: null, saving: false, dirty: false,
   dek: null, enc: false, lastDoc: null, anahtarlar: [], myKeyId: null, revize: {},   // dek: çözülmüş veri anahtarı
 };
@@ -74,6 +75,9 @@ function fmtGoreli(iso) {
   if (g < 7) return g + " gün önce";
   return fmtKisa(iso);
 }
+// dil boşsa Türkçe; yabancı dil konuşan hocalar ayrı sekmede
+const yabanci = (r) => !!r.dil && trLower(r.dil) !== "türkçe";
+const sekmede = (r) => yabanci(r) === (S.sekme === "yabanci");
 const cekimAdi = (r) => r.ad || (r.tur === "Ofis" ? "Ofis Çekimi" : r.tur + " Çekim");
 const b64enc = (str) => { const b = new TextEncoder().encode(str); let s = ""; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000)); return btoa(s); };
 const b64dec = (b64) => new TextDecoder().decode(b64bytes(b64));
@@ -125,19 +129,22 @@ async function encryptDoc(obj, dek, anahtarlar) {
 /* ---------- veri ---------- */
 async function load({ quiet = false } = {}) {
   try {
+    // İzleyiciler sitedeki kopyayı okur: GitHub API'nin anahtarsız kotası (saatte 60) aynı internet bağlantısındaki
+    // herkes için ortak, ofisten 3-4 kişi bakınca doluyordu. Düzenleyen kişi (GitHub anahtarıyla) API'den okur:
+    // sha ona lazım, site kopyası her kayıttan ~1 dk sonra yenilenir.
     let text = null;
-    if (API) {
+    if (!S.token) {
+      try { const r = await fetch(CFG.path + "?t=" + Date.now(), { cache: "no-store" }); if (r.ok) text = await r.text(); } catch {}
+    }
+    if (text == null && API) {
       const headers = { Accept: "application/vnd.github+json" };
-      if (S.token) headers.Authorization = "Bearer " + S.token;
+      const tok = S.token || (REV() && REV().token);
+      if (tok) headers.Authorization = "Bearer " + tok;
       const r = await fetch(`${API}?ref=${encodeURIComponent(CFG.branch)}`, { headers, cache: "no-store" });
       if (r.ok) { const j = await r.json(); S.sha = j.sha; text = b64dec(j.content); }
       else if (r.status === 401 && S.token) { logout("GitHub anahtarı geçersiz ya da süresi dolmuş. Yeniden bağlan."); }
     }
-    if (text == null) {   // API yoksa ya da kota dolduysa sitedeki kopya
-      const r = await fetch(CFG.path + "?t=" + Date.now(), { cache: "no-store" });
-      if (!r.ok) throw new Error("data.json okunamadı (" + r.status + ")");
-      text = await r.text();
-    }
+    if (text == null) throw new Error("data.json okunamadı");
     if (S.dirty || S.saving) return;   // kaydedilmemiş değişikliğin üstüne yazma
     const doc = JSON.parse(text);
     if (doc && doc.sifreli) {
@@ -151,10 +158,10 @@ async function load({ quiet = false } = {}) {
       }
       if (!plain) { showLock(); return; }
       S.enc = true;
-      S.data = normalize(plain);
+      setData(plain, doc.anahtarlar);
     } else {
       S.enc = false;
-      S.data = normalize(doc);
+      setData(doc);
     }
     showMain();
     S.loaded = true;
@@ -179,11 +186,38 @@ function normalize(d) {
   return d;
 }
 const uid = () => "c" + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const clone = (o) => JSON.parse(JSON.stringify(o));
+// S.base: depodan en son okunan/yazılan hal. Aynı anda başka biri kaydederse, bu tabana göre yalnız bizim değiştirdiğimiz
+// kartlar onun halinin üstüne yazılır (eskiden bizim bütün halimiz onunkini siliyordu).
+function setData(plain, anahtarlar) {
+  S.data = normalize(plain); S.base = clone(S.data);
+  if (anahtarlar) { S.anahtarlar = anahtarlar; S.baseKeys = clone(anahtarlar); }
+}
+const ayni = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+function mergeList(base, mine, theirs) {
+  const B = new Map((base || []).map((x) => [x.id, x])), M = new Map((mine || []).map((x) => [x.id, x]));
+  const out = [], seen = new Set();
+  for (const t of theirs || []) {
+    seen.add(t.id);
+    const b = B.get(t.id), m = M.get(t.id);
+    if (!m) { if (!(b && ayni(b, t))) out.push(t); continue; }   // biz sildik; o arada onlar değiştirdiyse onlarınki kalır
+    out.push(b && ayni(b, m) ? t : m);                             // biz dokunmadıysak onlarınki, dokunduysak bizimki
+  }
+  for (const m of mine || []) if (!seen.has(m.id) && (!B.has(m.id) || !ayni(B.get(m.id), m))) out.push(m);   // bizim eklediğimiz
+  return out;
+}
+function mergeData(base, mine, theirs) {
+  const out = { ...theirs };
+  for (const k of ["cekimler", "erisim"]) out[k] = mergeList(base[k], mine[k], theirs[k]);
+  if (!ayni(base.yukleme, mine.yukleme)) out.yukleme = mine.yukleme;
+  out.guncelleme = mine.guncelleme;
+  return out;
+}
 
 function mutate(fn, ozet) {
   fn();
   S.data.guncelleme = new Date().toISOString();
-  S.dirty = true; S.lastMsg = ozet || "Pano güncellendi";
+  S.dirty = true;   // ozet yalnız okunurluk için: depo herkese açık, kayıt açıklaması hep "Pano güncellendi"
   render();
   clearTimeout(S.saveTimer);
   S.saveTimer = setTimeout(save, 700);
@@ -195,20 +229,30 @@ async function save(retry = true) {
   if (S.saving) { clearTimeout(S.saveTimer); S.saveTimer = setTimeout(save, 500); return; }
   S.saving = true; S.dirty = false;
   try {
-    const out = S.enc ? await encryptDoc(S.data, S.dek, S.anahtarlar) : S.data;
+    const sent = clone(S.data), sentKeys = clone(S.anahtarlar);
+    const out = S.enc ? await encryptDoc(sent, S.dek, sentKeys) : sent;
     const body = JSON.stringify(out, null, 2) + "\n";
     const r = await fetch(API, {
       method: "PUT",
       headers: { Accept: "application/vnd.github+json", Authorization: "Bearer " + S.token, "Content-Type": "application/json" },
-      body: JSON.stringify({ message: S.lastMsg, content: b64enc(body), sha: S.sha || undefined, branch: CFG.branch }),
+      // depo herkese açık: açıklamaya hoca adı yazılmaz (veri şifreli, açıklama değil)
+      body: JSON.stringify({ message: "Pano güncellendi", content: b64enc(body), sha: S.sha || undefined, branch: CFG.branch }),
     });
     if (r.ok) {
       S.sha = (await r.json()).content.sha;
+      S.base = sent; S.baseKeys = sentKeys;
       syncChip("Kaydedildi", "var(--ok)");
     } else if ((r.status === 409 || r.status === 422) && retry) {
-      // dosya başka yerden değişmiş: güncel sha'yı alıp bizim halimizi yeniden yaz
+      // dosya o arada başka biri tarafından kaydedilmiş: güncel hali oku, bizim değişikliklerimizi onun üstüne birleştir
       const g = await fetch(`${API}?ref=${encodeURIComponent(CFG.branch)}`, { headers: { Authorization: "Bearer " + S.token }, cache: "no-store" });
-      if (g.ok) S.sha = (await g.json()).sha;
+      if (!g.ok) throw new Error("güncel hal okunamadı: HTTP " + g.status);
+      const j = await g.json(), doc = JSON.parse(b64dec(j.content));
+      const theirs = normalize(doc.sifreli ? await decryptDoc(doc, S.dek) : doc);
+      S.sha = j.sha;
+      S.data = mergeData(S.base, S.data, theirs);
+      if (doc.sifreli) S.anahtarlar = mergeList(S.baseKeys, S.anahtarlar, doc.anahtarlar);
+      S.base = clone(theirs); S.baseKeys = clone(doc.anahtarlar || []);
+      render();
       S.saving = false; return save(false);
     } else if (r.status === 401 || r.status === 403 || r.status === 404) {
       S.dirty = true;
@@ -242,7 +286,11 @@ function visible(r) {
 const bySira = (a, b) => (a.sira ?? 1e9) - (b.sira ?? 1e9) || (a.egitmen || "").localeCompare(b.egitmen || "", "tr");
 
 function render() {
-  const all = S.data.cekimler;
+  const yab = S.data.cekimler.filter(yabanci).length;
+  $("#tab-tr-n").textContent = String(S.data.cekimler.length - yab);
+  $("#tab-yab-n").textContent = String(yab);
+  for (const b of document.querySelectorAll("[data-sekme]")) b.setAttribute("aria-selected", String(b.dataset.sekme === S.sekme));
+  const all = S.data.cekimler.filter(sekmede);
   const n = all.length;
   const sayi = Object.fromEntries(DURUMLAR.map((d) => [d.id, all.filter((r) => r.durum === d.id).length]));
   const biten = all.filter((r) => BITEN.has(r.durum)).length;
@@ -252,7 +300,7 @@ function render() {
   $("#pct").textContent = pct + "%";
   $("#ring-val").style.strokeDashoffset = String(326.73 * (1 - (n ? biten / n : 0)));
   $("#ring").setAttribute("aria-label", `Tamamlanma oranı yüzde ${pct}`);
-  $("#done-line").textContent = S.loaded ? (n ? `${n} çekimden ${biten} tanesinin montajı tamamlandı` : "Henüz çekim eklenmedi") : "—";
+  $("#done-line").textContent = S.loaded ? (n ? `${n} çekimden ${biten} tanesinin montajı tamamlandı` : S.sekme === "yabanci" ? "Henüz yabancı dil çekimi eklenmedi" : "Henüz çekim eklenmedi") : "—";
   const aktif = sayi.montajda + sayi.revize;
   $("#sub-line").textContent = !S.loaded ? "Veriler yükleniyor…" :
     aktif ? `Şu an ${aktif} çekim üzerinde çalışılıyor, ${sayi.bekliyor} çekim sırada.` : `${sayi.bekliyor} çekim montaj sırasında bekliyor.`;
@@ -311,6 +359,7 @@ function card(r) {
     v ? vimeoThumb(r, v) : S.edit && VIDEOLU.has(r.durum) ? vimeoPaste(r) : null,
     h("div", { class: "card-top" }, h("div", { class: "card-name", text: r.egitmen || "İsimsiz" }), r.sira ? h("span", { class: "card-no", text: "#" + r.sira }) : null),
     h("div", { class: "chips" },
+      yabanci(r) ? h("span", { class: "chip lang", text: r.dil }) : null,
       h("span", { class: "chip " + r.tur, text: cekimAdi(r) }),
       r.disk ? h("span", { class: "chip warn", text: "Medya başka diskte" }) : null,
       r.teslim ? h("span", { class: "chip date", text: "Teslim " + fmtKisa(r.teslim) }) : null),
@@ -339,7 +388,7 @@ function renderTable(rows) {
     const tr = h("tr", { tabindex: "0" },
       h("td", { class: "num", text: r.sira ? "#" + r.sira : "—" }),
       h("td", { class: "name", text: r.egitmen }),
-      h("td", null, h("span", { class: "chip " + r.tur, text: cekimAdi(r) }), r.disk ? [" ", h("span", { class: "chip warn", text: "Başka diskte" })] : null),
+      h("td", null, yabanci(r) ? [h("span", { class: "chip lang", text: r.dil }), " "] : null, h("span", { class: "chip " + r.tur, text: cekimAdi(r) }), r.disk ? [" ", h("span", { class: "chip warn", text: "Başka diskte" })] : null),
       h("td", null, h("span", { class: "pill", style: `--c:${cssVar(d.renk)}`, text: d.ad })),
       h("td", { "data-k": r.teslim ? "Teslim" : null, text: r.teslim ? fmtKisa(r.teslim) : "" }),
       h("td", { "data-k": "Güncelleme", text: fmtGoreli(r.guncelleme) }),
@@ -369,7 +418,7 @@ function openItem(id, opts = {}) {
   const r = id ? S.data.cekimler.find((x) => x.id === id) : null;
   S.current = r ? r.id : null;
   const d = durumOf(r ? r.durum : "bekliyor");
-  $("#item-eyebrow").textContent = r ? cekimAdi(r) : "Yeni kayıt";
+  $("#item-eyebrow").textContent = r ? (yabanci(r) ? r.dil + " · " : "") + cekimAdi(r) : "Yeni kayıt";
   $("#item-title").textContent = r ? r.egitmen : "Yeni çekim";
 
   // görüntüleme
@@ -394,6 +443,7 @@ function openItem(id, opts = {}) {
   $("#f-sira").value = r?.sira ?? "";
   $("#f-teslim").value = r?.teslim || "";
   $("#f-ad").value = r?.ad || "";
+  $("#f-dil").value = r ? r.dil || "Türkçe" : S.sekme === "yabanci" ? "İngilizce" : "Türkçe";
   $("#f-disk").checked = !!r?.disk;
   $("#f-not").value = r?.not || "";
   $("#f-link").value = r?.link || "";
@@ -425,7 +475,7 @@ $("#item-form").addEventListener("submit", (e) => {
   const sira = parseInt($("#f-sira").value, 10);
   const val = {
     egitmen, tur: $("#f-tur").value, durum: $("#f-durum").value, sira: Number.isFinite(sira) ? sira : null,
-    teslim: $("#f-teslim").value, ad: $("#f-ad").value.trim(), disk: $("#f-disk").checked, not: $("#f-not").value.trim(),
+    teslim: $("#f-teslim").value, ad: $("#f-ad").value.trim(), dil: trLower($("#f-dil").value.trim()) === "türkçe" ? "" : $("#f-dil").value.trim(), disk: $("#f-disk").checked, not: $("#f-not").value.trim(),
     link: $("#f-link").value.trim(),
   };
   if (val.link && !safeUrl(val.link)) { $("#f-err").textContent = "İndirme linki http:// ya da https:// ile başlamalı."; return; }
@@ -495,11 +545,11 @@ function logout(msg) {
 /* ---------- kilit ve erişim anahtarları ---------- */
 function showLock() {
   S.edit = false; syncChip();
-  $("#main").hidden = true; $("#lock").hidden = false; $("#btn-mode").hidden = true;
+  $("#main").hidden = true; $("#lock").hidden = false; $("#btn-mode").hidden = true; $(".mast-tabs").hidden = true;
   $("#lock-pass").value = ""; $("#lock-err").textContent = "";
   $("#lock-pass").focus();
 }
-function showMain() { $("#lock").hidden = true; $("#main").hidden = false; $("#btn-mode").hidden = false; }
+function showMain() { $("#lock").hidden = true; $("#main").hidden = false; $("#btn-mode").hidden = false; $(".mast-tabs").hidden = false; }
 $("#lock-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const key = $("#lock-pass").value;
@@ -511,7 +561,7 @@ $("#lock-form").addEventListener("submit", async (e) => {
     const plain = await decryptDoc(S.lastDoc, u.dek);
     S.dek = u.dek; S.myKeyId = u.id; S.enc = true;
     if ($("#lock-remember").checked) store.set(KEY_KEY, normKey(key));
-    S.data = normalize(plain); S.loaded = true;
+    setData(plain, S.lastDoc.anahtarlar); S.loaded = true;
     showMain(); banner(""); render();
     loadRevize().then(render);
   } catch { $("#lock-err").textContent = "Anahtar geçersiz."; $("#lock-pass").select(); }
@@ -1007,6 +1057,12 @@ function renderRevSettings() {
 
 /* ---------- araç çubuğu ---------- */
 for (const b of document.querySelectorAll("[data-view]")) b.addEventListener("click", () => { S.view = b.dataset.view; store.set("trigemy_view", S.view); render(); });
+// Türkçe / yabancı dil sekmesi; linke #yabanci eklenirse doğrudan o sekme açılır
+for (const b of document.querySelectorAll("[data-sekme]")) b.addEventListener("click", () => {
+  S.sekme = b.dataset.sekme; store.set("trigemy_sekme", S.sekme);
+  try { history.replaceState(null, "", S.sekme === "yabanci" ? "#yabanci" : location.pathname + location.search); } catch {}
+  render();
+});
 for (const b of document.querySelectorAll("[data-tur]")) b.addEventListener("click", () => {
   S.tur = b.dataset.tur;
   for (const x of document.querySelectorAll("[data-tur]")) x.setAttribute("aria-pressed", String(x === b));
@@ -1016,9 +1072,10 @@ let qt; $("#q").addEventListener("input", (e) => { clearTimeout(qt); qt = setTim
 $("#btn-add").addEventListener("click", () => openItem(null));
 addEventListener("beforeunload", (e) => { if (S.dirty || S.saving) { e.preventDefault(); e.returnValue = ""; } });
 
-// izleyiciler için arada bir tazele (GitHub'ın anahtarsız kotası saatte 60 istek)
-setInterval(() => { if (!document.hidden && !S.edit && $("#lock").hidden) load({ quiet: true }); }, 180000);
-document.addEventListener("visibilitychange", () => { if (!document.hidden && !S.edit && S.loaded && $("#lock").hidden) load({ quiet: true }); });
+// arada bir tazele; düzenleyen kişi de ekibin değişikliklerini görsün (kaydedilmemiş değişiklik ya da açık pencere yokken)
+const tazelenir = () => !document.hidden && S.loaded && $("#lock").hidden && !S.dirty && !S.saving && !document.querySelector("dialog[open]");
+setInterval(() => { if (tazelenir()) load({ quiet: true }); }, 180000);
+document.addEventListener("visibilitychange", () => { if (tazelenir()) load({ quiet: true }); });
 
 showMain();
 render();

@@ -11,12 +11,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=7">
 <script>
   // Verinin tutulduğu GitHub deposu (değişiklikler buradaki data.json'a kaydedilir)
   window.TRIGEMY = { owner: "MonarkCo", repo: "Trigemy", branch: "main", path: "data.json" };
 </script>
-<script src="app.js?v=6" defer></script>
+<script src="app.js?v=7" defer></script>
 </head>
 <body>
 <header class="masthead">
@@ -32,6 +32,10 @@
     <div class="mast-actions">
       <span class="sync" id="sync" hidden></span>
       <button class="btn ghost-dark" id="btn-mode" type="button">Düzenle</button>
+    </div>
+    <div class="mast-tabs" role="tablist" aria-label="Eğitmen dili">
+      <button type="button" role="tab" data-sekme="tr" aria-selected="true">Türkçe eğitmenler <b id="tab-tr-n">0</b></button>
+      <button type="button" role="tab" data-sekme="yabanci" aria-selected="false">Yabancı dil eğitmenleri <b id="tab-yab-n">0</b></button>
     </div>
   </div>
 </header>
@@ -131,7 +135,11 @@
         <label>Sıra no<input id="f-sira" type="number" min="1" step="1" inputmode="numeric"></label>
         <label>Teslim tarihi<input id="f-teslim" type="date"></label>
       </div>
-      <label>Çekim adı <small>(isteğe bağlı)</small><input id="f-ad" autocomplete="off" placeholder="Ör. W&amp;H Ofis Çekimi"></label>
+      <div class="grid2">
+        <label>Dil <small>(Türkçe dışı ayrı sekmede)</small><input id="f-dil" list="diller" autocomplete="off" placeholder="Türkçe"></label>
+        <label>Çekim adı <small>(isteğe bağlı)</small><input id="f-ad" autocomplete="off" placeholder="Ör. W&amp;H Ofis Çekimi"></label>
+      </div>
+      <datalist id="diller"><option value="Türkçe"><option value="İngilizce"><option value="Arapça"><option value="Almanca"><option value="Fransızca"><option value="Rusça"><option value="İspanyolca"><option value="Azerice"></datalist>
       <label>Vimeo linki <small>(montajlanınca yapıştır; video burada açılır)</small><input id="f-vimeo" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://vimeo.com/…"></label>
       <p class="field-hint" id="f-vimeo-hint" role="status"></p>
       <label>İndirme linki <small>(myairbridge vb., isteğe bağlı)</small><input id="f-link" type="url" inputmode="url" autocomplete="off" placeholder="https://"></label>
