@@ -5,11 +5,12 @@
 const DURUMLAR = [
   { id: "bekliyor",    ad: "Montaj Bekliyor", renk: "--st-bekliyor" },
   { id: "montajda",    ad: "Montajda",        renk: "--st-montajda" },
-  { id: "revize",      ad: "Revizede",        renk: "--st-revize" },
   { id: "montajlandi", ad: "Montajlandı",     renk: "--st-montajlandi" },
+  { id: "revize",      ad: "Revizede",        renk: "--st-revize" },
   { id: "yayinda",     ad: "Yayında",         renk: "--st-yayinda" },
 ];
 const BITEN = new Set(["montajlandi", "yayinda"]);
+const VIDEOLU = new Set(["montajlandi", "revize", "yayinda"]);   // montajlanınca Vimeo'ya konur, revize ve yayın aynı kartta sürer
 const durumOf = (id) => DURUMLAR.find((d) => d.id === id) || DURUMLAR[0];
 
 const store = {
@@ -305,7 +306,9 @@ function card(r) {
   const d = durumOf(r.durum);
   const sel = S.edit ? h("select", { "aria-label": "Durumu değiştir", onclick: (e) => e.stopPropagation(), onchange: (e) => setDurum(r.id, e.target.value) },
     DURUMLAR.map((x) => h("option", { value: x.id, selected: x.id === r.durum, text: x.ad }))) : null;
+  const v = vimeoParse(r.vimeo);
   const c = h("article", { class: "card", tabindex: "0", draggable: S.edit ? "true" : null, style: `--c:${cssVar(d.renk)}`, "aria-label": `${r.egitmen}, ${cekimAdi(r)}, ${d.ad}` },
+    v ? vimeoThumb(r, v) : S.edit && VIDEOLU.has(r.durum) ? vimeoPaste(r) : null,
     h("div", { class: "card-top" }, h("div", { class: "card-name", text: r.egitmen || "İsimsiz" }), r.sira ? h("span", { class: "card-no", text: "#" + r.sira }) : null),
     h("div", { class: "chips" },
       h("span", { class: "chip " + r.tur, text: cekimAdi(r) }),
@@ -313,13 +316,13 @@ function card(r) {
       r.teslim ? h("span", { class: "chip date", text: "Teslim " + fmtKisa(r.teslim) }) : null),
     r.not ? h("div", { class: "card-note", text: r.not }) : null,
     revizeChip(r),
-    r.durum === "yayinda" && (safeUrl(r.link) || REV()) ? h("div", { class: "card-acts" },
+    (r.durum === "yayinda" || v) && (safeUrl(r.link) || REV()) ? h("div", { class: "card-acts" },
       safeUrl(r.link) ? h("a", { class: "btn small primary", href: safeUrl(r.link), target: "_blank", rel: "noopener noreferrer", text: "Videoyu indir", onclick: (e) => e.stopPropagation() }) : null,
-      REV() ? h("button", { class: "btn small", type: "button", text: "Revizyon yükle", onclick: (e) => { e.stopPropagation(); openItem(r.id, { upload: true }); } }) : null) : null,
+      REV() ? h("button", { class: "btn small", type: "button", text: "Yorum · Revize", onclick: (e) => { e.stopPropagation(); openItem(r.id, { upload: true }); } }) : null) : null,
     h("div", { class: "card-foot" }, h("span", { text: fmtGoreli(r.guncelleme) }), sel),
   );
   c.addEventListener("click", () => openItem(r.id));
-  c.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openItem(r.id); } });
+  c.addEventListener("keydown", (e) => { if (e.target === c && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openItem(r.id); } });
   if (S.edit) {
     c.addEventListener("dragstart", (e) => { e.dataTransfer.setData("text/plain", r.id); e.dataTransfer.effectAllowed = "move"; c.classList.add("dragging"); });
     c.addEventListener("dragend", () => c.classList.remove("dragging"));
@@ -355,7 +358,7 @@ function setDurum(id, durum) {
     const now = new Date().toISOString();
     r.durum = durum; r.guncelleme = now; r.gecmis.push({ durum, tarih: now });
   }, `${r.egitmen} (${cekimAdi(r)}) → ${durumOf(durum).ad}`);
-  if (durum === "yayinda" && !r.link) openItem(id, { focus: "#f-link" });   // yayına çıkan videonun indirme linki
+  if (VIDEOLU.has(durum) && !r.vimeo) openItem(id, { focus: "#f-vimeo" });   // montajlanan videonun Vimeo linki
 }
 
 /* ---------- ayrıntı / düzenleme penceresi ---------- */
@@ -394,7 +397,10 @@ function openItem(id, opts = {}) {
   $("#f-disk").checked = !!r?.disk;
   $("#f-not").value = r?.not || "";
   $("#f-link").value = r?.link || "";
+  $("#f-vimeo").value = r?.vimeo || "";
   $("#f-err").textContent = "";
+  vimeoHint();
+  showMedia(r ? vimeoParse(r.vimeo) : null, opts);
   renderExtra(r, opts);
 
   const editing = S.edit;
@@ -405,7 +411,10 @@ function openItem(id, opts = {}) {
   dlg.showModal();
   if (editing && !r) $("#f-egitmen").focus();
   if (editing && opts.focus) $(opts.focus).focus();
+  if (opts.upload && $("#c-metin")) setTimeout(() => { $("#c-metin").scrollIntoView({ block: "nearest" }); $("#c-metin").focus(); }, 60);
 }
+// pencere hangi yoldan kapanırsa kapansın (çarpı, Esc, kaydet) video da durur; close olayı arka plandaki sekmede gecikebiliyor
+new MutationObserver(() => { if (!dlg.open) stopMedia(); }).observe(dlg, { attributes: true, attributeFilter: ["open"] });
 function fact(label, val) { return h("div", { class: "fact" }, h("span", { text: label }), typeof val === "string" ? h("b", { text: val }) : val); }
 
 $("#item-form").addEventListener("submit", (e) => {
@@ -420,6 +429,9 @@ $("#item-form").addEventListener("submit", (e) => {
     link: $("#f-link").value.trim(),
   };
   if (val.link && !safeUrl(val.link)) { $("#f-err").textContent = "İndirme linki http:// ya da https:// ile başlamalı."; return; }
+  const vraw = $("#f-vimeo").value.trim(), vv = vimeoParse(vraw);
+  if (vraw && !vv) { $("#f-err").textContent = "Vimeo linki tanınmadı. vimeo.com/… biçiminde bir link yapıştır."; return; }
+  val.vimeo = vv ? vv.url : "";
   const now = new Date().toISOString();
   const r = S.current && S.data.cekimler.find((x) => x.id === S.current);
   if (r) {
@@ -566,63 +578,232 @@ $("#btn-copy-key").addEventListener("click", (e) => copy($("#key-value").textCon
 $("#btn-copy-msg").addEventListener("click", (e) => copy(
   `Trigemy montaj takibi: ${siteUrl()}\nErişim anahtarınız: ${$("#key-value").textContent}`, e.currentTarget));
 
-/* ---------- indirme linki ve revizyon dosyaları ----------
-   Hocalar revize dosyasını ayrı bir depoya (ör. Trigemy-revize) yükler; yalnız o depoya yazabilen anahtar şifreli veride durur.
-   Dosyalar veri anahtarıyla şifrelenip <çekim id>/<zaman>-<rastgele>.enc olarak yazılır. */
+/* ---------- Vimeo ----------
+   Yayındaki video Vimeo linkiyle gelir: link (ya da gömme kodu) yapıştırılınca oynatıcı ve küçük resim kendiliğinden çıkar.
+   Liste dışı (unlisted) videolarda linkteki gizli kod (vimeo.com/<id>/<kod>) korunur. */
+const VIMEO_SDK = "https://cdn.jsdelivr.net/npm/@vimeo/player@2.30.4/dist/player.min.js";
+function vimeoParse(s) {
+  s = (s || "").trim();
+  const src = s.match(/src=["']([^"']+)["']/i); if (src) s = src[1];
+  if (!/vimeo\.com\//i.test(s)) return null;
+  let u; try { u = new URL(/^https?:\/\//i.test(s) ? s : "https://" + s.replace(/^\/+/, "")); } catch { return null; }
+  if (!/(^|\.)vimeo\.com$/i.test(u.hostname)) return null;
+  const parts = u.pathname.split("/").filter(Boolean);
+  const i = parts.findIndex((p) => /^\d{5,}$/.test(p));
+  if (i < 0) return null;
+  const id = parts[i], next = parts[i + 1] || "";
+  const hash = (u.searchParams.get("h") || (/^[0-9a-f]{6,}$/i.test(next) ? next : "")).replace(/[^0-9a-f]/gi, "");
+  return {
+    id, hash, url: `https://vimeo.com/${id}${hash ? "/" + hash : ""}`,
+    embed: `https://player.vimeo.com/video/${id}?${hash ? "h=" + hash + "&" : ""}title=0&byline=0&portrait=0&dnt=1`,
+  };
+}
+const OEMBED = new Map();
+function vimeoInfo(v) {
+  if (!OEMBED.has(v.url)) OEMBED.set(v.url, fetch(`https://vimeo.com/api/oembed.json?width=960&url=${encodeURIComponent(v.url)}`)
+    .then((r) => (r.ok ? r.json() : null)).catch(() => null));
+  return OEMBED.get(v.url);
+}
+const thumbUrl = (d) => (d && /^https:\/\/i\.vimeocdn\.com\/[^\s"'()\\]+$/.test(d.thumbnail_url || "") ? d.thumbnail_url : "");
+function fmtSure(sn) {
+  sn = Math.max(0, Math.floor(sn || 0));
+  const s = String(sn % 60).padStart(2, "0"), m = Math.floor(sn / 60) % 60, sa = Math.floor(sn / 3600);
+  return sa ? `${sa}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+}
+
+function vimeoThumb(r, v) {
+  const dur = h("span", { class: "thumb-dur" });
+  const b = h("button", { class: "thumb", type: "button", "aria-label": `${r.egitmen} videosunu izle`,
+    onclick: (e) => { e.stopPropagation(); openItem(r.id, { play: true }); } }, h("span", { class: "thumb-play", "aria-hidden": "true" }), dur);
+  vimeoInfo(v).then((d) => {
+    const t = thumbUrl(d); if (t) b.style.backgroundImage = `url("${t}")`;
+    if (d && d.duration) dur.textContent = fmtSure(d.duration);
+  });
+  return b;
+}
+// yönetici: montajlanan karta linki doğrudan yapıştırır
+function vimeoPaste(r) {
+  const inp = h("input", { class: "card-paste", type: "url", inputmode: "url", autocomplete: "off", spellcheck: "false",
+    placeholder: "Vimeo linkini yapıştır", "aria-label": `${r.egitmen} için Vimeo linki`,
+    onclick: (e) => e.stopPropagation(), onkeydown: (e) => { e.stopPropagation(); if (e.key === "Enter") apply(); } });
+  function apply() {
+    const v = vimeoParse(inp.value), dolu = !!inp.value.trim();
+    inp.classList.toggle("bad", dolu && !v);
+    inp.title = dolu && !v ? "Bu bir Vimeo linki değil" : "";
+    if (v) mutate(() => { r.vimeo = v.url; r.guncelleme = new Date().toISOString(); }, `${r.egitmen} (${cekimAdi(r)}) Vimeo videosu eklendi`);
+  }
+  inp.addEventListener("paste", () => setTimeout(apply, 0));
+  inp.addEventListener("change", apply);
+  return inp;
+}
+
+// pencerede oynatıcı; zaman kodu için Vimeo'nun oynatıcı kütüphanesi yalnız gerektiğinde yüklenir
+const P = { el: null, embed: "", player: null, t: 0, sdk: null };
+function loadSdk() {
+  if (window.Vimeo && window.Vimeo.Player) return Promise.resolve();
+  return (P.sdk ||= new Promise((res, rej) => document.head.append(h("script", { src: VIMEO_SDK, onload: res, onerror: () => { P.sdk = null; rej(); } }))));
+}
+function showMedia(v, opts = {}) {
+  dlg.classList.toggle("wide", !!v);
+  if (!v) { stopMedia(); return; }
+  if (P.embed === v.embed && P.el && P.el.isConnected) return;   // aynı video zaten açık
+  stopMedia();
+  const ifr = h("iframe", { src: v.embed + (opts.play ? "&autoplay=1" : ""), title: "Vimeo videosu", allowfullscreen: true,
+    allow: "autoplay; fullscreen; picture-in-picture; clipboard-write", referrerpolicy: "strict-origin-when-cross-origin" });
+  const title = h("span", { class: "media-title", text: "Vimeo" });
+  const box = $("#item-media");
+  box.replaceChildren(h("div", { class: "player" }, ifr),
+    h("div", { class: "media-meta" }, title, h("a", { href: v.url, target: "_blank", rel: "noopener noreferrer", text: "Vimeo'da aç ↗" })));
+  box.hidden = false;
+  P.el = ifr; P.embed = v.embed; P.t = 0;
+  vimeoInfo(v).then((d) => { if (d && d.title && P.el === ifr) title.textContent = d.title + (d.duration ? " · " + fmtSure(d.duration) : ""); });
+  loadSdk().then(() => {
+    if (P.el !== ifr) return;
+    const p = new window.Vimeo.Player(ifr);
+    P.player = p;
+    p.on("timeupdate", (d) => { P.t = d.seconds; stampLabel(); });
+    p.on("seeked", (d) => { P.t = d.seconds; stampLabel(); });
+  }).catch(() => {});
+}
+function stopMedia() {
+  if (P.player) { try { P.player.destroy(); } catch {} }
+  P.el = null; P.embed = ""; P.player = null; P.t = 0;
+  const box = $("#item-media"); box.replaceChildren(); box.hidden = true;
+}
+function seek(sn) {
+  if (!P.player) return;
+  $("#item-media").scrollIntoView({ block: "nearest", behavior: "smooth" });
+  P.player.setCurrentTime(sn).then(() => P.player.play()).catch(() => {});
+}
+function stampLabel() {
+  const t = $("#c-stamp-t"), c = $("#c-stamp");
+  if (!t) return;
+  t.textContent = fmtSure(P.t) + " anına bağla";
+  if (c && !c.dataset.elle && P.t >= 1) c.checked = true;   // video oynatıldıysa yorum o ana bağlanır (kişi kapatmadıysa)
+}
+function vimeoHint() {
+  const raw = $("#f-vimeo").value.trim(), v = vimeoParse(raw), hint = $("#f-vimeo-hint");
+  hint.style.color = "";
+  if (!raw) hint.textContent = "";
+  else if (!v) { hint.style.color = "var(--danger)"; hint.textContent = "Bu bir Vimeo linki değil. Ör. https://vimeo.com/123456789"; }
+  else {
+    hint.style.color = "var(--ok)"; hint.textContent = "Video bulundu.";
+    vimeoInfo(v).then((d) => {
+      if ($("#f-vimeo").value.trim() !== raw) return;
+      hint.textContent = d && d.title ? `Video bulundu: ${d.title}` : "Video bulundu. Oynatıcı açılmazsa Vimeo'da videonun gömme (embed) iznini kontrol et.";
+    });
+  }
+  if (dlg.open) showMedia(v);
+}
+$("#f-vimeo").addEventListener("input", vimeoHint);
+
+/* ---------- yorumlar ve revizeler ----------
+   Hocalar ve ekip ayrı bir depoya (ör. Trigemy-revize) yazar; yalnız o depoya yazabilen anahtar şifreli veride durur.
+   Her kayıt veri anahtarıyla şifreli ayrı bir dosyadır, aynı anda yazanlar çakışmaz:
+     <çekim>/yorum/<zaman>-<rastgele>.enc    yorum
+     <çekim>/revize/<zaman>-<rastgele>.enc   revize isteği (isteğe bağlı ek dosyayla)
+     <çekim>/ek/<zaman>-<rastgele>.enc       revize isteğine eklenen dosya
+     <çekim>/<zaman>-<rastgele>.enc          eski sürümde tek başına yüklenen revize dosyası
+   Yazanın adı, girdiği erişim anahtarının adıdır (yönetici her kişiye ayrı anahtar üretir). */
 const REV = () => (S.data.yukleme && S.data.yukleme.token && S.data.yukleme.repo ? S.data.yukleme : null);
 const safeUrl = (u) => (/^https?:\/\/[^\s]+$/i.test(u || "") ? u : "");
 const MAX_DOSYA = 15 * 1024 * 1024;
 const revApi = (y, path = "") => `https://api.github.com/repos/${y.repo}/contents/${path}`;
 const revHeaders = (y, raw) => ({ Authorization: "Bearer " + y.token, Accept: raw ? "application/vnd.github.raw" : "application/vnd.github+json" });
+const NOTLAR = new Map();    // yol → çözülmüş kayıt (kayıt dosyaları değişmez, önbellek güvenli)
+const SHA = new Map();       // yol → dosya sha'sı (silmek için)
+const BEKLEYEN = new Map();  // yeni yazılan, depo listesine henüz düşmemiş kayıtlar
+const SILINEN = new Map();   // silinen, depo listesinden henüz düşmemiş kayıtlar
+const revOf = (id) => S.revize[id] || { dosyalar: [], notlar: [] };
+const benimAdim = () => ((S.data.erisim || []).find((x) => x.id === S.myKeyId) || {}).ad || "İsimsiz";
+const rid = () => Math.random().toString(36).slice(2, 8);
+const fmtSaat = (ts) => new Date(ts).toLocaleString("tr-TR", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+
+async function sifreleBayt(plain) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, S.dek, plain));
+  const out = new Uint8Array(12 + ct.length); out.set(iv); out.set(ct, 12);
+  return out;
+}
+const cozBayt = async (buf) => new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: buf.subarray(0, 12) }, S.dek, buf.subarray(12)));
+
+async function revPut(path, bytes, message) {
+  const y = REV();
+  for (let i = 0; ; i++) {
+    const r = await fetch(revApi(y, path), {
+      method: "PUT", headers: { ...revHeaders(y), "Content-Type": "application/json" },
+      body: JSON.stringify({ message, content: bytesb64(bytes), branch: y.branch || "main" }),
+    });
+    if (r.ok) { const sha = (await r.json()).content.sha; SHA.set(path, sha); return sha; }
+    if (r.status === 409 && i < 3) { await new Promise((ok) => setTimeout(ok, 700 * (i + 1))); continue; }   // aynı anda başka kayıt yazıldı
+    throw new Error("HTTP " + r.status);
+  }
+}
+async function revGet(path) {
+  const y = REV();
+  const r = await fetch(revApi(y, path) + "?ref=" + encodeURIComponent(y.branch || "main"), { headers: revHeaders(y, true), cache: "no-store" });
+  if (!r.ok) throw new Error("HTTP " + r.status);
+  return new Uint8Array(await r.arrayBuffer());
+}
+async function revDel(path) {
+  const y = REV(), sha = SHA.get(path);
+  if (!sha) throw new Error("sha yok");
+  const r = await fetch(revApi(y, path), {
+    method: "DELETE", headers: { ...revHeaders(y), "Content-Type": "application/json" },
+    body: JSON.stringify({ message: "Kayıt silindi", sha, branch: y.branch || "main" }),
+  });
+  if (!r.ok && r.status !== 404) throw new Error("HTTP " + r.status);
+}
 
 async function loadRevize() {
   const y = REV();
   if (!y || !S.dek) { S.revize = {}; return; }
   try {
     const r = await fetch(`https://api.github.com/repos/${y.repo}/git/trees/${y.branch || "main"}?recursive=1`, { headers: revHeaders(y), cache: "no-store" });
-    if (r.status === 404 || r.status === 409) { S.revize = {}; return; }   // depo boş
-    if (!r.ok) return;
-    const m = {};
-    for (const t of (await r.json()).tree || []) {
-      const mm = t.type === "blob" && t.path.match(/^([^/]+)\/(\d+)-[a-z0-9]+\.enc$/);
-      if (mm) (m[mm[1]] ||= []).push({ path: t.path, ts: +mm[2] });
+    if (!r.ok && r.status !== 404 && r.status !== 409) return;   // 404/409: depo boş
+    const tree = r.ok ? (await r.json()).tree || [] : [];
+    const m = {}, seen = new Set();
+    const of = (cid) => (m[cid] ||= { dosyalar: [], notlar: [] });
+    for (const t of tree) {
+      if (t.type !== "blob") continue;
+      seen.add(t.path); SHA.set(t.path, t.sha);
+      if (SILINEN.has(t.path)) continue;
+      let mm;
+      if ((mm = t.path.match(/^([^/]+)\/(yorum|revize)\/(\d+)-[a-z0-9]+\.enc$/))) of(mm[1]).notlar.push({ path: t.path, tur: mm[2], ts: +mm[3] });
+      else if ((mm = t.path.match(/^([^/]+)\/(\d+)-[a-z0-9]+\.enc$/))) of(mm[1]).dosyalar.push({ path: t.path, ts: +mm[2] });
     }
-    for (const k in m) m[k].sort((a, b) => b.ts - a.ts);
+    const now = Date.now();
+    for (const [path, b] of BEKLEYEN) {
+      if (seen.has(path) || now - b.eklendi > 300000) BEKLEYEN.delete(path);
+      else of(b.cid).notlar.push(b.kayit);
+    }
+    for (const [path, t] of SILINEN) if (!seen.has(path) || now - t > 300000) SILINEN.delete(path);
     S.revize = m;
-  } catch { /* liste alınamadı; sonraki yüklemede tekrar denenir */ }
+    if (dlg.open) renderThread();
+  } catch { /* liste alınamadı; sonraki tazelemede tekrar denenir */ }
 }
 function revizeChip(r) {
-  const f = S.revize[r.id];
-  if (!f || !f.length) return null;
-  const yeni = f[0].ts > Date.parse(r.guncelleme || 0);
-  return h("div", { class: "chips" }, h("span", { class: "chip " + (yeni ? "date" : ""), style: yeni ? null : "--c:var(--brand)",
-    text: (yeni ? "Yeni revize · " : "") + f.length + " revize dosyası" }));
+  const e = revOf(r.id);
+  const revler = [...e.dosyalar, ...e.notlar.filter((n) => n.tur === "revize")], yorumlar = e.notlar.filter((n) => n.tur === "yorum");
+  if (!revler.length && !yorumlar.length) return null;
+  const son = Date.parse(r.guncelleme || 0) || 0;
+  const yeniRev = revler.some((x) => x.ts > son), yeniYor = yorumlar.some((x) => x.ts > son);
+  return h("div", { class: "chips" },
+    revler.length ? h("span", { class: "chip", style: `--c:var(${yeniRev ? "--st-revize" : "--brand"})`, text: (yeniRev ? "Yeni revize · " : "") + revler.length + " revize" }) : null,
+    yorumlar.length ? h("span", { class: "chip", style: `--c:var(${yeniYor ? "--st-montajda" : "--muted"})`, text: (yeniYor ? "Yeni yorum · " : "") + yorumlar.length + " yorum" }) : null);
 }
 
-async function uploadRevize(cekimId, file) {
-  const y = REV();
-  const me = (S.data.erisim || []).find((x) => x.id === S.myKeyId);
-  const head = new TextEncoder().encode(JSON.stringify({ ad: file.name, tip: file.type, boyut: file.size, tarih: new Date().toISOString(), yukleyen: me ? me.ad : "" }));
+async function dosyaYukle(cid, file) {
+  const head = new TextEncoder().encode(JSON.stringify({ ad: file.name, tip: file.type, boyut: file.size, tarih: new Date().toISOString(), yukleyen: benimAdim() }));
   const plain = new Uint8Array(4 + head.length + file.size);
   new DataView(plain.buffer).setUint32(0, head.length);
   plain.set(head, 4); plain.set(new Uint8Array(await file.arrayBuffer()), 4 + head.length);
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, S.dek, plain));
-  const blob = new Uint8Array(12 + ct.length); blob.set(iv); blob.set(ct, 12);
-  const ts = Date.now(), path = `${cekimId}/${ts}-${Math.random().toString(36).slice(2, 8)}.enc`;
-  const r = await fetch(revApi(y, path), {
-    method: "PUT", headers: { ...revHeaders(y), "Content-Type": "application/json" },
-    body: JSON.stringify({ message: "Revizyon dosyası", content: bytesb64(blob), branch: y.branch || "main" }),
-  });
-  if (!r.ok) throw new Error("HTTP " + r.status);
-  (S.revize[cekimId] ||= []).unshift({ path, ts });
+  const path = `${cid}/ek/${Date.now()}-${rid()}.enc`;
+  await revPut(path, await sifreleBayt(plain), "Revize eki");
+  return path;
 }
 async function downloadRevize(path) {
-  const y = REV();
-  const r = await fetch(revApi(y, path) + "?ref=" + encodeURIComponent(y.branch || "main"), { headers: revHeaders(y, true), cache: "no-store" });
-  if (!r.ok) throw new Error("HTTP " + r.status);
-  const buf = new Uint8Array(await r.arrayBuffer());
-  const plain = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: buf.subarray(0, 12) }, S.dek, buf.subarray(12)));
+  const plain = await cozBayt(await revGet(path));
   const n = new DataView(plain.buffer).getUint32(0);
   const head = JSON.parse(new TextDecoder().decode(plain.subarray(4, 4 + n)));
   const url = URL.createObjectURL(new Blob([plain.subarray(4 + n)], { type: head.tip || "application/octet-stream" }));
@@ -631,58 +812,167 @@ async function downloadRevize(path) {
   setTimeout(() => URL.revokeObjectURL(url), 30000);
   return head;
 }
-const fmtSaat = (ts) => new Date(ts).toLocaleString("tr-TR", { day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+async function notYaz(cid, tur, metin, sn, file) {
+  const dosya = file ? { path: await dosyaYukle(cid, file), ad: file.name, boyut: file.size } : null;
+  const kayit = { tur, metin, sn, yazan: benimAdim(), yazanId: S.myKeyId || "", tarih: new Date().toISOString(), dosya };
+  const ts = Date.now(), path = `${cid}/${tur}/${ts}-${rid()}.enc`;
+  await revPut(path, await sifreleBayt(new TextEncoder().encode(JSON.stringify(kayit))), tur === "revize" ? "Revize isteği" : "Yorum");
+  NOTLAR.set(path, kayit);
+  const n = { path, tur, ts };
+  (S.revize[cid] ||= { dosyalar: [], notlar: [] }).notlar.push(n);
+  BEKLEYEN.set(path, { cid, kayit: n, eklendi: Date.now() });
+}
+async function notOku(path) {
+  if (!NOTLAR.has(path)) NOTLAR.set(path, JSON.parse(new TextDecoder().decode(await cozBayt(await revGet(path)))));
+  return NOTLAR.get(path);
+}
+async function notSil(cid, path, kayit) {
+  await revDel(path);
+  if (kayit && kayit.dosya && SHA.has(kayit.dosya.path)) revDel(kayit.dosya.path).catch(() => {});
+  const e = S.revize[cid]; if (e) e.notlar = e.notlar.filter((x) => x.path !== path);
+  BEKLEYEN.delete(path); SILINEN.set(path, Date.now());
+}
+
+const AVATAR = ["--st-montajda", "--st-montajlandi", "--st-yayinda", "--st-revize", "--brand"];
+const avatarRenk = (s) => { let x = 0; for (const c of s || "") x = (x * 31 + c.charCodeAt(0)) >>> 0; return AVATAR[x % AVATAR.length]; };
+const basHarf = (s) => (s || "?").trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toLocaleUpperCase("tr");
+const KABUL = ".pdf,.doc,.docx,.txt,.rtf,.odt,.pages,.md,.png,.jpg,.jpeg,.webp,application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*";
 
 function renderExtra(r, opts = {}) {
   const box = $("#item-extra");
   if (!r) { box.replaceChildren(); box.hidden = true; return; }
-  const files = S.revize[r.id] || [];
-  const canUpload = REV() && (r.durum === "yayinda" || r.durum === "revize" || S.edit);
-  const status = h("p", { class: "form-err", role: "status" });
-  const input = h("input", { type: "file", class: "sr", accept: ".pdf,.doc,.docx,.txt,.rtf,.odt,.pages,.md,application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" });
-  async function send(file) {
-    if (!file) return;
-    if (file.size > MAX_DOSYA) { status.textContent = "Dosya 15 MB'tan büyük olamaz."; return; }
-    status.style.color = "var(--muted)"; status.textContent = `“${file.name}” yükleniyor…`;
-    try { await uploadRevize(r.id, file); status.style.color = "var(--ok)"; status.textContent = `“${file.name}” yüklendi. Teşekkürler!`; render(); renderList(); }
-    catch { status.style.color = ""; status.textContent = "Yüklenemedi. İnternet bağlantını kontrol edip tekrar dene."; }
+  const link = safeUrl(r.link), video = !!vimeoParse(r.vimeo);
+  const acik = REV() && S.dek;
+  const parts = [];
+  if (link) parts.push(h("a", { class: "btn dl", href: link, target: "_blank", rel: "noopener noreferrer" }, h("svg", { viewBox: "0 0 20 20", "aria-hidden": "true" }), "Videoyu indir"));
+  if (acik || S.edit) {
+    parts.push(h("p", { class: "sec-title", id: "thread-title", text: "Yorumlar ve revizeler" }), h("ul", { class: "thread", id: "thread" }));
+    parts.push(acik ? composer(r, video || VIDEOLU.has(r.durum), video, opts)
+      : h("p", { class: "muted", text: "Yorum ve revize için önce Erişim anahtarları → Revize dosyası yükleme ayarını yap." }));
   }
-  input.addEventListener("change", () => send(input.files[0]));
-  const drop = canUpload ? h("label", { class: "drop" }, input,
-    h("b", { text: "Revizyon dosyası yükle" }), h("span", { text: "Dosyayı buraya sürükle ya da seçmek için tıkla · PDF, Word, TXT" })) : null;
-  if (drop) {
-    drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
-    drop.addEventListener("dragleave", () => drop.classList.remove("over"));
-    drop.addEventListener("drop", (e) => { e.preventDefault(); drop.classList.remove("over"); send(e.dataTransfer.files[0]); });
-  }
-  const list = h("ul", { class: "file-list" });
-  function renderList() {
-    const fs = S.revize[r.id] || [];
-    list.replaceChildren(...fs.map((f) => {
-      const name = h("span", { text: "Revizyon dosyası · " + fmtSaat(f.ts) });
-      const btn = h("button", { class: "btn small", type: "button", text: "İndir" });
-      btn.addEventListener("click", async () => {
-        btn.disabled = true;
-        try { const hd = await downloadRevize(f.path); name.textContent = hd.ad + (hd.yukleyen ? " · " + hd.yukleyen : "") + " · " + fmtSaat(f.ts); }
-        catch { btn.textContent = "İndirilemedi"; }
-        finally { btn.disabled = false; }
-      });
-      return h("li", null, name, btn);
-    }));
-    list.hidden = !fs.length;
-  }
-  renderList();
-  const link = safeUrl(r.link);
-  box.replaceChildren(...[
-    link ? h("a", { class: "btn primary dl", href: link, target: "_blank", rel: "noopener noreferrer" },
-      h("svg", { viewBox: "0 0 20 20", "aria-hidden": "true" }), "Videoyu indir") : null,
-    files.length || canUpload ? h("p", { class: "sec-title", text: "Revizyon dosyaları" }) : null,
-    list, drop, status,
-  ].filter(Boolean));
+  box.replaceChildren(...parts);
   const svg = box.querySelector(".dl svg");
   if (svg) svg.innerHTML = '<path d="M10 3v10m0 0-4-4m4 4 4-4M4 16h12"/>';
-  box.hidden = !box.children.length || (!link && !files.length && !canUpload);
-  if (opts.upload && drop) setTimeout(() => drop.scrollIntoView({ block: "nearest" }), 50);
+  box.hidden = !parts.length;
+  renderThread();
+}
+
+function composer(r, revizeOlur, video, opts) {
+  let tur = "yorum", file = null;
+  const ta = h("textarea", { id: "c-metin", rows: "3", "aria-label": "Yorum" });
+  const kinds = revizeOlur ? h("div", { class: "seg", role: "group", "aria-label": "Kayıt türü" },
+    h("button", { type: "button", "data-kind": "yorum", text: "Yorum" }),
+    h("button", { type: "button", "data-kind": "revize", text: "Revize isteği" })) : null;
+  const stamp = video ? h("label", { class: "check stamp-check" }, h("input", { type: "checkbox", id: "c-stamp" }), h("span", { id: "c-stamp-t", text: "0:00 anına bağla" })) : null;
+  const fileIn = h("input", { type: "file", class: "sr", id: "c-file", accept: KABUL });
+  const fileBtn = h("label", { class: "btn small file-btn" }, fileIn, "Dosya ekle");
+  const fileChip = h("span", { class: "file-chip", hidden: true });
+  const send = h("button", { class: "btn primary small", type: "button", text: "Gönder" });
+  const status = h("p", { class: "form-err", role: "status" });
+  const box = h("div", { class: "composer" },
+    h("div", { class: "composer-row" }, kinds, h("span", { class: "as-who", text: benimAdim() + " olarak yazıyorsun" })),
+    ta,
+    h("div", { class: "composer-row" }, stamp, fileBtn, fileChip, h("span", { class: "spacer" }), send),
+    status);
+
+  function setTur(t) {
+    tur = t; box.classList.toggle("is-revize", t === "revize");
+    if (kinds) for (const b of kinds.children) b.setAttribute("aria-pressed", String(b.dataset.kind === t));
+    ta.placeholder = t === "revize" ? "Neyin değişmesi gerekiyor? Ör. bu kısımdaki slayt yanlış, bir sonrakiyle değişmeli." : "Yorumunu yaz…";
+    ta.setAttribute("aria-label", t === "revize" ? "Revize isteği" : "Yorum");
+    fileBtn.hidden = t !== "revize";
+    if (t !== "revize") setFile(null);
+  }
+  function setFile(f) {
+    if (f && f.size > MAX_DOSYA) { status.style.color = ""; status.textContent = "Dosya 15 MB'tan büyük olamaz."; return; }
+    file = f || null; fileIn.value = "";
+    fileChip.hidden = !file;
+    fileChip.replaceChildren(...(file ? [h("span", { text: file.name }), h("button", { type: "button", class: "linkish", "aria-label": "Dosyayı çıkar", text: "×", onclick: () => setFile(null) })] : []));
+  }
+  if (kinds) for (const b of kinds.children) b.addEventListener("click", () => setTur(b.dataset.kind));
+  fileIn.addEventListener("change", () => setFile(fileIn.files[0]));
+  if (revizeOlur) {
+    box.addEventListener("dragover", (e) => { e.preventDefault(); box.classList.add("over"); });
+    box.addEventListener("dragleave", (e) => { if (!box.contains(e.relatedTarget)) box.classList.remove("over"); });
+    box.addEventListener("drop", (e) => { e.preventDefault(); box.classList.remove("over"); if (e.dataTransfer.files[0]) { setTur("revize"); setFile(e.dataTransfer.files[0]); } });
+  }
+  if (stamp) stamp.querySelector("input").addEventListener("change", (e) => { e.target.dataset.elle = "1"; });
+  ta.addEventListener("focus", () => { if (P.player) P.player.pause().catch(() => {}); });   // yazarken video dursun, an kaymasın
+  ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send.click(); } });
+  send.addEventListener("click", async () => {
+    const metin = ta.value.trim();
+    status.style.color = "";
+    if (!metin && !file) { status.textContent = tur === "revize" ? "Revize isteğini yaz ya da dosya ekle." : "Yorumunu yaz."; ta.focus(); return; }
+    const chk = $("#c-stamp");
+    const sn = chk && chk.checked ? Math.round(P.t * 10) / 10 : null;
+    send.disabled = true; status.style.color = "var(--muted)"; status.textContent = file ? `“${file.name}” yükleniyor…` : "Gönderiliyor…";
+    try {
+      await notYaz(r.id, tur, metin, sn, file);
+      ta.value = ""; setFile(null);
+      status.style.color = "var(--ok)"; status.textContent = tur === "revize" ? "Revize isteğin iletildi." : "Yorumun eklendi.";
+      renderThread(); render();
+    } catch {
+      status.style.color = ""; status.textContent = "Gönderilemedi. İnternet bağlantını kontrol edip tekrar dene.";
+    } finally { send.disabled = false; }
+  });
+  setTur(opts.revize && revizeOlur ? "revize" : "yorum");
+  stampLabel();
+  return box;
+}
+
+function renderThread() {
+  const ul = $("#thread"), r = S.current && S.data.cekimler.find((x) => x.id === S.current);
+  if (!ul || !r) return;
+  const e = revOf(r.id);
+  const items = [...e.notlar, ...e.dosyalar.map((f) => ({ ...f, eski: true }))].sort((a, b) => a.ts - b.ts);
+  $("#thread-title").textContent = "Yorumlar ve revizeler" + (items.length ? " · " + items.length : "");
+  if (!items.length) { ul.replaceChildren(h("li", { class: "thread-empty", text: REV() ? "Henüz yorum yok. Videoyu izleyip ilk yorumu sen yaz." : "Henüz yorum yok." })); return; }
+  ul.replaceChildren(...items.map((it) => notEl(r, it)));
+}
+function notEl(r, it) {
+  const li = h("li", { class: "note" + (it.eski || it.tur === "revize" ? " revize" : "") });
+  if (it.eski) { fillNote(li, r, it, { tur: "revize", metin: "", yazan: "", tarih: new Date(it.ts).toISOString(), dosya: { path: it.path, ad: "Revizyon dosyası" } }); return li; }
+  const k = NOTLAR.get(it.path);
+  if (k) fillNote(li, r, it, k);
+  else {
+    li.append(h("div", { class: "skel line" }));
+    notOku(it.path).then((k2) => { li.replaceChildren(); fillNote(li, r, it, k2); })
+      .catch(() => li.replaceChildren(h("span", { class: "muted", text: "Bu kayıt okunamadı." })));
+  }
+  return li;
+}
+function fillNote(li, r, it, k) {
+  const ad = k.yazan || (it.eski ? "Yüklenen dosya" : "İsimsiz");
+  const silebilir = !it.eski && (S.edit || (k.yazanId && k.yazanId === S.myKeyId));
+  const head = h("div", { class: "note-head" }, h("b", { text: ad }),
+    k.tur === "revize" ? h("span", { class: "chip", style: "--c:var(--st-revize)", text: "Revize" }) : null,
+    h("time", { datetime: k.tarih, title: fmtSaat(Date.parse(k.tarih) || it.ts), text: fmtGoreli(k.tarih) }));
+  if (silebilir) {
+    const del = h("button", { class: "linkish note-del", type: "button", text: "Sil" });
+    del.addEventListener("click", async () => {
+      if (!del.dataset.onay) { del.dataset.onay = "1"; del.textContent = "Silinsin mi? Evet"; return; }
+      del.disabled = true;
+      try { await notSil(r.id, it.path, k); renderThread(); render(); }
+      catch { del.disabled = false; del.textContent = "Silinemedi"; }
+    });
+    head.append(del);
+  }
+  const body = h("div", { class: "note-body" }, head,
+    Number.isFinite(k.sn) ? h("button", { class: "stamp", type: "button", title: "Videoda bu ana git", text: "▶ " + fmtSure(k.sn), onclick: () => seek(k.sn) }) : null,
+    k.metin ? h("div", { class: "note-text", text: k.metin }) : null,
+    k.dosya ? fileRow(k.dosya, it.eski) : null);
+  li.append(h("span", { class: "avatar", style: `--c:var(${avatarRenk(ad)})`, "aria-hidden": "true", text: it.eski ? "↥" : basHarf(ad) }), body);
+}
+function fileRow(d, eski) {
+  const name = h("span", { text: d.ad + (d.boyut ? ` · ${Math.max(1, Math.round(d.boyut / 1024))} KB` : "") });
+  const btn = h("button", { class: "btn small", type: "button", text: "İndir" });
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    try { const hd = await downloadRevize(d.path); if (eski) name.textContent = hd.ad + (hd.yukleyen ? " · " + hd.yukleyen : ""); }
+    catch { btn.textContent = "İndirilemedi"; }
+    finally { btn.disabled = false; }
+  });
+  return h("div", { class: "note-file" }, name, btn);
 }
 
 // yönetici: revize yükleme ayarı

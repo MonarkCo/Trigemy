@@ -11,12 +11,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=6">
 <script>
   // Verinin tutulduğu GitHub deposu (değişiklikler buradaki data.json'a kaydedilir)
   window.TRIGEMY = { owner: "MonarkCo", repo: "Trigemy", branch: "main", path: "data.json" };
 </script>
-<script src="app.js?v=5" defer></script>
+<script src="app.js?v=6" defer></script>
 </head>
 <body>
 <header class="masthead">
@@ -117,6 +117,8 @@
       </button>
     </header>
 
+    <div class="sheet-media" id="item-media" hidden></div>
+
     <div class="sheet-body" id="item-view"></div>
 
     <div class="sheet-body" id="item-edit" hidden>
@@ -130,7 +132,9 @@
         <label>Teslim tarihi<input id="f-teslim" type="date"></label>
       </div>
       <label>Çekim adı <small>(isteğe bağlı)</small><input id="f-ad" autocomplete="off" placeholder="Ör. W&amp;H Ofis Çekimi"></label>
-      <label>İndirme linki <small>(myairbridge vb., yayındaki video)</small><input id="f-link" type="url" inputmode="url" autocomplete="off" placeholder="https://"></label>
+      <label>Vimeo linki <small>(montajlanınca yapıştır; video burada açılır)</small><input id="f-vimeo" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://vimeo.com/…"></label>
+      <p class="field-hint" id="f-vimeo-hint" role="status"></p>
+      <label>İndirme linki <small>(myairbridge vb., isteğe bağlı)</small><input id="f-link" type="url" inputmode="url" autocomplete="off" placeholder="https://"></label>
       <label class="check"><input id="f-disk" type="checkbox"> Medya başka diskte</label>
       <label>Not<textarea id="f-not" rows="3" placeholder="Revize istekleri, eksik dosyalar, teslim notu…"></textarea></label>
       <p class="form-err" id="f-err" role="alert"></p>

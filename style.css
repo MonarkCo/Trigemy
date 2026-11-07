@@ -221,6 +221,65 @@ textarea { resize: vertical; min-height: 84px }
 .file-list li { display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--surface-2); border-radius: var(--r-md); padding: 8px 8px 8px 12px; font-size: 13.5px }
 .file-list li span { min-width: 0; overflow-wrap: anywhere }
 
+/* Vimeo: kart küçük resmi, karta link yapıştırma, penceredeki oynatıcı */
+.thumb { display: block; width: 100%; max-width: 100%; aspect-ratio: 16 / 9; border: 0; padding: 0; border-radius: var(--r-sm); background: var(--mast) center / cover no-repeat; position: relative; overflow: hidden; cursor: pointer }
+.thumb::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 45%, rgba(8,10,21,.6)) }
+.thumb-play { position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; margin: -22px 0 0 -22px; border-radius: 50%; background: rgba(255,255,255,.94); box-shadow: 0 4px 14px rgba(8,10,21,.35); z-index: 1; transition: transform .15s }
+.thumb-play::before { content: ""; position: absolute; inset: 14px 12px 14px 17px; background: var(--mast); clip-path: polygon(0 0, 100% 50%, 0 100%) }
+.thumb:hover .thumb-play { transform: scale(1.08) }
+.thumb-dur { position: absolute; right: 8px; bottom: 6px; z-index: 1; font: 500 11.5px var(--f-mono); color: #fff; font-variant-numeric: tabular-nums }
+.card-paste { width: 100%; font-size: 13px; border: 1.5px dashed var(--line-2); border-radius: var(--r-sm); padding: 9px 10px; background: var(--bg); outline: none }
+.card-paste:focus { border-color: var(--brand); border-style: solid }
+.card-paste.bad { border-color: var(--danger) }
+.field-hint { margin: -8px 0 0; font-size: 12.5px; color: var(--muted); min-height: 1px; overflow-wrap: anywhere }
+dialog.sheet.wide { width: min(860px, calc(100vw - 24px)) }
+.sheet-media { padding: 8px 24px 4px; display: grid; gap: 8px }
+.player { position: relative; width: 100%; max-width: 100%; aspect-ratio: 16 / 9; border-radius: var(--r-md); overflow: hidden; background: #000 }
+.player iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0 }
+.media-meta { display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13px; color: var(--muted) }
+.media-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.media-meta a { color: var(--brand); font-weight: 600; text-decoration: none; flex: none }
+.media-meta a:hover { text-decoration: underline }
+
+/* Yorumlar ve revizeler */
+.thread { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px }
+.thread-empty { font-size: 13.5px; color: var(--muted); padding: 4px 2px }
+.note { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 10px; padding: 10px 12px; background: var(--surface-2); border-radius: var(--r-md); border-left: 3px solid transparent }
+.note.revize { border-left-color: var(--st-revize); background: color-mix(in srgb, var(--st-revize) 7%, var(--surface-2)) }
+.note > .muted, .note > .skel { grid-column: 1 / -1 }
+.skel.line { height: 38px }
+.avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font: 700 12px var(--f-display); letter-spacing: .02em; color: #fff; background: var(--c) }
+.note-body { min-width: 0; display: grid; gap: 4px; justify-items: start }
+.note-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; width: 100% }
+.note-head b { font-size: 14px }
+.note-head time { font-size: 12px; color: var(--muted) }
+.note-del { margin-left: auto; font-size: 12px }
+.note-del:hover { color: var(--danger) }
+.note-text { font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; justify-self: stretch }
+.stamp { font: 500 12px var(--f-mono); font-variant-numeric: tabular-nums; border: 0; border-radius: 6px; padding: 2px 8px; background: color-mix(in srgb, var(--brand) 14%, transparent); color: var(--brand); cursor: pointer }
+.stamp:hover { background: color-mix(in srgb, var(--brand) 24%, transparent) }
+.note-file { display: flex; align-items: center; gap: 10px; justify-self: stretch; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 5px 5px 5px 10px; font-size: 13px }
+.note-file span { flex: 1; min-width: 0; overflow-wrap: anywhere }
+.composer { display: grid; gap: 8px; background: var(--surface); border: 1px solid var(--line-2); border-radius: var(--r-md); padding: 10px 12px; transition: border-color .15s, box-shadow .15s }
+.composer:focus-within, .composer.over { border-color: var(--brand); box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 16%, transparent) }
+.composer.is-revize:focus-within, .composer.is-revize.over { border-color: var(--st-revize); box-shadow: 0 0 0 3px color-mix(in srgb, var(--st-revize) 18%, transparent) }
+.composer textarea { width: 100%; min-height: 66px; border: 0; background: none; outline: none; padding: 2px 0; font-size: 15px; resize: vertical }
+.composer-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px }
+.composer .seg { padding: 2px }
+.composer .seg button { padding: 4px 10px; font-size: 12.5px }
+.composer .seg button[data-kind="revize"][aria-pressed="true"] { background: color-mix(in srgb, var(--st-revize) 18%, transparent) }
+.as-who { font-size: 12.5px; color: var(--muted); margin-left: auto }
+.stamp-check { font-size: 13px; font-family: var(--f-mono); font-weight: 500; font-variant-numeric: tabular-nums; color: var(--ink-2) }
+.stamp-check input { width: 16px; height: 16px }
+.file-btn { position: relative }
+.file-chip { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; background: var(--surface-2); border-radius: 6px; padding: 3px 4px 3px 9px; max-width: 220px }
+.file-chip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.file-chip .linkish { text-decoration: none; font-size: 15px; line-height: 1; padding: 0 4px }
+@media (max-width: 680px) {
+  .sheet-media { padding: 6px 16px 2px }
+  .as-who { margin-left: 0; flex-basis: 100% }
+}
+
 /* Yükleniyor iskeleti */
 .skel { height: 92px; border-radius: var(--r-md); background: linear-gradient(90deg, var(--surface) 0%, var(--surface-2) 50%, var(--surface) 100%); background-size: 200% 100%; animation: sh 1.4s infinite }
 @keyframes sh { to { background-position: -200% 0 } }
