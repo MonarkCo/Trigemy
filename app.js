@@ -365,9 +365,10 @@ function card(r) {
       r.teslim ? h("span", { class: "chip date", text: "Teslim " + fmtKisa(r.teslim) }) : null),
     r.not ? h("div", { class: "card-note", text: r.not }) : null,
     revizeChip(r),
-    (r.durum === "yayinda" || v) && (safeUrl(r.link) || REV()) ? h("div", { class: "card-acts" },
+    VIDEOLU.has(r.durum) || v || safeUrl(r.link) ? h("div", { class: "card-acts" },
       safeUrl(r.link) ? h("a", { class: "btn small primary", href: safeUrl(r.link), target: "_blank", rel: "noopener noreferrer", text: "Videoyu indir", onclick: (e) => e.stopPropagation() }) : null,
-      REV() ? h("button", { class: "btn small", type: "button", text: "Yorum · Revize", onclick: (e) => { e.stopPropagation(); openItem(r.id, { upload: true }); } }) : null) : null,
+      // montajı biten her kartta (yükleme ayarı yoksa pencere ne yapılacağını söyler)
+      VIDEOLU.has(r.durum) || v ? h("button", { class: "btn small", type: "button", text: "Revize ekle", onclick: (e) => { e.stopPropagation(); openItem(r.id, { upload: true, revize: true }); } }) : null) : null,
     h("div", { class: "card-foot" }, h("span", { text: fmtGoreli(r.guncelleme) }), sel),
   );
   c.addEventListener("click", () => openItem(r.id));
@@ -462,6 +463,7 @@ function openItem(id, opts = {}) {
   if (editing && !r) $("#f-egitmen").focus();
   if (editing && opts.focus) $(opts.focus).focus();
   if (opts.upload && $("#c-metin")) setTimeout(() => { $("#c-metin").scrollIntoView({ block: "nearest" }); $("#c-metin").focus(); }, 60);
+  else if (opts.upload && $("#rev-kapali")) setTimeout(() => $("#rev-kapali").scrollIntoView({ block: "nearest" }), 60);
 }
 // pencere hangi yoldan kapanırsa kapansın (çarpı, Esc, kaydet) video da durur; close olayı arka plandaki sekmede gecikebiliyor
 new MutationObserver(() => { if (!dlg.open) stopMedia(); }).observe(dlg, { attributes: true, attributeFilter: ["open"] });
@@ -895,10 +897,16 @@ function renderExtra(r, opts = {}) {
   const acik = REV() && S.dek;
   const parts = [];
   if (link) parts.push(h("a", { class: "btn dl", href: link, target: "_blank", rel: "noopener noreferrer" }, h("svg", { viewBox: "0 0 20 20", "aria-hidden": "true" }), "Videoyu indir"));
-  if (acik || S.edit) {
+  if (acik) {
     parts.push(h("p", { class: "sec-title", id: "thread-title", text: "Yorumlar ve revizeler" }), h("ul", { class: "thread", id: "thread" }));
-    parts.push(acik ? composer(r, video || VIDEOLU.has(r.durum), video, opts)
-      : h("p", { class: "muted", text: "Yorum ve revize için önce Erişim anahtarları → Revize dosyası yükleme ayarını yap." }));
+    parts.push(composer(r, video || VIDEOLU.has(r.durum), video, opts));
+  } else if (S.edit || video || VIDEOLU.has(r.durum)) {
+    // revize deposu ve yükleme anahtarı girilmemiş: kimse revize yazamaz, ne yapılacağı söylenir
+    parts.push(h("p", { class: "sec-title", text: "Revize ekle" }), h("div", { class: "note-box", id: "rev-kapali" },
+      S.edit && S.enc ? ["Revize ve yorum için kurulum gerekli: ",
+        h("button", { class: "linkish", type: "button", text: "Erişim anahtarları", onclick: () => { dlg.close(); $("#btn-keys").click(); } }),
+        " → en alttaki Revize dosyası yükleme bölümüne revize deposunu ve yükleme anahtarını gir."]
+      : "Revize ekleme henüz açılmadı. Pano yöneticisi kurulumu tamamlayınca revizeni buradan yazabileceksin."));
   }
   box.replaceChildren(...parts);
   const svg = box.querySelector(".dl svg");
