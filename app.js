@@ -24,15 +24,19 @@ const ASAMALAR = [
 const asamaIdx = (id) => Math.max(0, ASAMALAR.findIndex((a) => a.id === id));
 // canlı iş adımı (r.is): video üzerinde çalışılırken herkese "şu an ne yapılıyor" gösterilir.
 // Claude pano.mjs ile günceller; 8 saattir güncellenmeyen adım bayat sayılıp gösterilmez.
+// sıra TRIGEMY kurgu akışı: hazırlık → analiz → kurgu → açı → slayt → renk → ses → kontrol → render → yükleme
 const ISLER = [
   { id: "hazirlik", ad: "Hazırlanıyor" },
+  { id: "analiz",   ad: "Kesim kararları veriliyor" },
   { id: "kurgu",    ad: "Kurgu yapılıyor" },
-  { id: "revize",   ad: "Revizeler işleniyor" },
+  { id: "aci",      ad: "Açı geçişleri yapılıyor" },
+  { id: "slayt",    ad: "Slaytlar yerleştiriliyor" },
   { id: "renk",     ad: "Renk ayarı yapılıyor" },
   { id: "ses",      ad: "Ses düzenleniyor" },
+  { id: "kontrol",  ad: "Son kontrol yapılıyor" },
   { id: "render",   ad: "Renderlanıyor" },
   { id: "yukleme",  ad: "Vimeo'ya yükleniyor" },
-  { id: "kontrol",  ad: "Son kontrol yapılıyor" },
+  { id: "revize",   ad: "Revizeler işleniyor", ayri: true },   // revize turu: adım çizgisinde yer almaz
 ];
 const IS_OMUR = 8 * 3600e3;
 function isOf(r) {
@@ -552,13 +556,13 @@ function renderNow(all) {
   const box = $("#now");
   const list = all.map((r) => ({ r, w: isOf(r) })).filter((x) => x.w).sort((a, b) => b.w.ts - a.w.ts);
   box.replaceChildren(...list.map(({ r, w }) => {
-    const ai = ISLER.findIndex((a) => a.id === w.adim);
+    const hat = ISLER.filter((a) => !a.ayri), ai = hat.findIndex((a) => a.id === w.adim);
     return h("button", { class: "now-row", type: "button", onclick: () => openItem(r.id) },
       h("span", { class: "now-dot" }),
       av(r.egitmen, "md"),
       h("div", { class: "txt" }, h("b", { text: isMetni(w) }), h("p", { text: `${r.egitmen} · ${cekimAdi(r)}` })),
       h("span", { class: "sp" }),
-      ai >= 0 ? h("div", { class: "now-steps", "aria-hidden": "true" }, ISLER.map((s, i) => h("i", { class: i < ai ? "on" : i === ai ? "now" : "", title: s.ad }))) : null,
+      ai >= 0 ? h("div", { class: "now-steps", "aria-hidden": "true" }, hat.map((s, i) => h("i", { class: i < ai ? "on" : i === ai ? "now" : "", title: s.ad }))) : null,
       h("small", { class: "when", text: fmtGoreli(w.tarih) }),
       w.yuzde != null ? h("span", { class: "now-bar", style: `--p:${w.yuzde}%` }) : null);
   }));
