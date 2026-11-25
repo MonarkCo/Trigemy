@@ -1,0 +1,15 @@
+{
+  "sifreli": true,
+  "v": 2,
+  "iv": "sxazbfuk8LXjA8e1",
+  "ct": "89Yt5WC22Lf0KbP60/wggFWXQ/HCQlKEeBnswoCb",
+  "anahtarlar": [
+    {
+      "id": "kmvl8dibi0",
+      "iter": 100000,
+      "salt": "v1QqclUujCjSrQnbdEUMNA==",
+      "iv": "FEw7RTbZS273NzUz",
+      "k": "sIPpWu14ApDksrfLCBt1AOHQ4xS4ch584LcmCdQI80I6TegF2wW64cMuoAgjGByX"
+    }
+  ]
+}
