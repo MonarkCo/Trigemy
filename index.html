@@ -6,156 +6,159 @@
 <title>Trigemy · Montaj Takibi</title>
 <meta name="description" content="Trigemy eğitim videolarının montaj sürecini gösteren takip panosu.">
 <meta name="robots" content="noindex">
-<meta name="theme-color" content="#11152b">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2311152b'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%236f80f7'/%3E%3C/svg%3E">
+<meta name="theme-color" content="#08090e">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2308090e'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%237383ff'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter+Tight:wght@400;500;600&family=JetBrains+Mono:wght@500&display=swap">
-<link rel="stylesheet" href="style.css?v=7">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
 <script>
   // Verinin tutulduğu GitHub deposu (değişiklikler buradaki data.json'a kaydedilir)
   window.TRIGEMY = { owner: "MonarkCo", repo: "Trigemy", branch: "main", path: "data.json" };
+  // tema: kişinin seçimi bu cihazda saklanır, yoksa sistem teması
+  try { const t = localStorage.getItem("trigemy_tema"); if (t) document.documentElement.dataset.theme = t; } catch {}
 </script>
-<script src="app.js?v=8" defer></script>
+<link rel="stylesheet" href="style.css?v=10">
+<script src="app.js?v=10" defer></script>
 </head>
 <body>
-<header class="masthead">
-  <div class="masthead-in">
-    <div class="brand">
-      <img src="logo.png" alt="Trigemy" width="140" height="45">
-      <span class="brand-sep" aria-hidden="true"></span>
-      <div class="brand-text">
-        <h1>Montaj Takibi</h1>
-        <p>Eğitim videolarının kurgu süreci</p>
-      </div>
-    </div>
-    <div class="mast-actions">
-      <span class="sync" id="sync" hidden></span>
-      <button class="btn ghost-dark" id="btn-mode" type="button">Düzenle</button>
-    </div>
-    <div class="mast-tabs" role="tablist" aria-label="Eğitmen dili">
-      <button type="button" role="tab" data-sekme="tr" aria-selected="true">Türkçe eğitmenler <b id="tab-tr-n">0</b></button>
-      <button type="button" role="tab" data-sekme="yabanci" aria-selected="false">Yabancı dil eğitmenleri <b id="tab-yab-n">0</b></button>
-    </div>
+<header class="top">
+  <div class="top-in">
+    <div class="brand"><img src="logo.png" alt="Trigemy" width="140" height="45"><span>Montaj Takibi</span></div>
+    <nav class="tabs" id="tabs" role="tablist" aria-label="Eğitmen dili">
+      <button type="button" role="tab" data-sekme="tr" aria-selected="true">Türkçe <b id="tab-tr-n">0</b></button>
+      <button type="button" role="tab" data-sekme="yabanci" aria-selected="false">Yabancı dil <b id="tab-yab-n">0</b></button>
+    </nav>
+    <span class="sp"></span>
+    <span class="live" id="live" hidden><i></i><span id="live-t"></span></span>
+    <span class="sync" id="sync" hidden></span>
+    <label class="cmd" id="cmd"><span class="sr">Eğitmen ara</span>
+      <svg class="i" viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="6"/><path d="m14 14 4 4"/></svg>
+      <input id="q" type="search" placeholder="Eğitmen ya da çekim ara" autocomplete="off"><kbd aria-hidden="true">/</kbd>
+    </label>
+    <button class="ib" id="btn-theme" type="button" title="Açık / koyu tema" aria-label="Temayı değiştir">
+      <svg class="i" viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 12.5A7 7 0 0 1 7.5 3.5a7 7 0 1 0 9 9z"/></svg>
+    </button>
+    <button class="btn" id="btn-mode" type="button">Düzenle</button>
   </div>
 </header>
 
 <section class="lock" id="lock" hidden aria-labelledby="lock-title">
-  <form class="lock-card" id="lock-form">
-    <div class="lock-icon" aria-hidden="true">
-      <svg viewBox="0 0 24 24"><rect x="4.5" y="10.5" width="15" height="10" rx="2.5"/><path d="M8 10.5V7.5a4 4 0 0 1 8 0v3"/></svg>
-    </div>
-    <h2 id="lock-title">Bu pano özel</h2>
-    <p class="muted">Montaj takibini görmek için sana verilen erişim anahtarını gir.</p>
+  <form class="lock-card surface" id="lock-form">
+    <img src="logo.png" alt="Trigemy" class="lock-logo">
+    <h2 id="lock-title">Montaj Takibi</h2>
+    <p class="muted">Sana verilen erişim anahtarını gir.</p>
     <label><span class="sr">Erişim anahtarı</span><input id="lock-pass" type="password" autocomplete="current-password" placeholder="XXXX-XXXX-XXXX-XXXX" spellcheck="false" required></label>
     <label class="check"><input id="lock-remember" type="checkbox" checked> Bu cihazda hatırla</label>
     <p class="form-err" id="lock-err" role="alert"></p>
-    <button class="btn primary" type="submit" id="lock-btn">Aç</button>
+    <button class="btn pri" type="submit" id="lock-btn">Aç</button>
   </form>
 </section>
 
 <main class="wrap" id="main" hidden>
-  <section class="overview" aria-label="Genel durum">
-    <div class="progress-card">
-      <div class="ring" id="ring" role="img" aria-label="Tamamlanma oranı">
-        <svg viewBox="0 0 120 120" aria-hidden="true">
-          <circle cx="60" cy="60" r="52" class="ring-track"/>
-          <circle cx="60" cy="60" r="52" class="ring-val" id="ring-val"/>
-        </svg>
-        <div class="ring-label"><b id="pct">0%</b><span>tamamlandı</span></div>
-      </div>
-      <div class="progress-text">
-        <h2 id="done-line">—</h2>
-        <p id="sub-line">Veriler yükleniyor…</p>
-        <div class="stack" id="stack" aria-hidden="true"></div>
-        <ul class="legend" id="legend"></ul>
-      </div>
+  <div class="head"><h1>Montaj süreci</h1><p id="head-sub">Veriler yükleniyor…</p></div>
+
+  <section class="hero" aria-label="Genel durum">
+    <div class="surface prog">
+      <div class="prog-top"><b class="mono"><span id="pct">0</span><small>%</small></b><p id="done-line">tamamlandı</p></div>
+      <div class="track" id="track" aria-hidden="true"></div>
+      <div class="legend" id="legend" role="group" aria-label="Aşamaya göre süz"></div>
     </div>
-    <div class="kpis" id="kpis"></div>
+    <div class="surface stats" id="stats"></div>
   </section>
 
-  <section class="toolbar" aria-label="Görünüm ve filtre">
+  <section class="alerts" id="alerts" aria-label="Gelen revizeler"></section>
+  <p class="banner" id="banner" hidden></p>
+
+  <section class="bar" aria-label="Görünüm ve filtre">
+    <h2>Pano</h2>
     <div class="seg" role="group" aria-label="Görünüm">
-      <button type="button" data-view="pano" aria-pressed="true">Pano</button>
-      <button type="button" data-view="liste" aria-pressed="false">Liste</button>
+      <button type="button" data-view="pano" aria-pressed="true"><svg class="i" viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3.5" width="4" height="13" rx="1.2"/><rect x="8.5" y="3.5" width="4" height="9" rx="1.2"/><rect x="14" y="3.5" width="3" height="11" rx="1.2"/></svg>Pano</button>
+      <button type="button" data-view="liste" aria-pressed="false"><svg class="i" viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5.5h12M4 10h12M4 14.5h12"/></svg>Liste</button>
     </div>
-    <div class="seg" role="group" aria-label="Çekim türü" id="tur-seg">
+    <div class="seg" role="group" aria-label="Çekim türü">
       <button type="button" data-tur="" aria-pressed="true">Tümü</button>
       <button type="button" data-tur="Teorik" aria-pressed="false">Teorik</button>
       <button type="button" data-tur="Klinik" aria-pressed="false">Klinik</button>
       <button type="button" data-tur="Ofis" aria-pressed="false">Ofis</button>
     </div>
-    <label class="search"><span class="sr">Eğitmen ara</span>
-      <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="6"/><path d="m14 14 4 4"/></svg>
-      <input id="q" type="search" placeholder="Eğitmen ara" autocomplete="off">
-    </label>
-    <button class="btn" id="btn-keys" type="button" hidden>Erişim anahtarları</button>
-    <button class="btn primary" id="btn-add" type="button" hidden>+ Yeni çekim</button>
+    <span class="sp"></span>
+    <button class="btn" id="btn-keys" type="button" hidden><svg class="i" viewBox="0 0 20 20" aria-hidden="true"><circle cx="7" cy="12" r="3.5"/><path d="m9.5 9.5 7-7M14 5l2 2"/></svg>Erişim anahtarları</button>
+    <button class="btn pri" id="btn-add" type="button" hidden><svg class="i" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 4v12M4 10h12"/></svg>Yeni çekim</button>
   </section>
 
-  <p class="banner" id="banner" hidden></p>
-
-  <section id="view-pano" class="board-scroll" aria-label="Montaj panosu"><div class="board" id="board"></div></section>
-  <section id="view-liste" class="table-wrap" aria-label="Montaj listesi" hidden>
+  <section id="view-pano" class="board" aria-label="Montaj panosu"></section>
+  <section id="view-liste" class="list surface" aria-label="Montaj listesi" hidden>
     <table class="table">
-      <thead><tr><th>#</th><th>Eğitmen</th><th>Çekim</th><th>Durum</th><th>Teslim</th><th>Güncelleme</th><th>Not</th></tr></thead>
+      <thead><tr><th>Eğitmen</th><th>Çekim</th><th>Durum</th><th>Teslim</th><th>Revize</th><th>Güncelleme</th></tr></thead>
       <tbody id="rows"></tbody>
     </table>
   </section>
 
   <footer class="foot">
-    <span id="foot-upd">—</span>
-    <span>Trigemy · montaj takibi · <button class="linkish" type="button" id="btn-forget">Bu cihazda kilitle</button></span>
+    <span id="foot-upd"></span>
+    <button class="linkish" type="button" id="btn-forget">Bu cihazda kilitle</button>
   </footer>
 </main>
 
-<dialog id="dlg-item" class="sheet" aria-labelledby="item-title">
+<!-- çekim ayrıntısı: sağdan açılan panel -->
+<dialog id="dlg-item" class="drawer" aria-labelledby="item-title">
   <form id="item-form" method="dialog">
-    <header class="sheet-head">
-      <div>
-        <p class="eyebrow" id="item-eyebrow">Çekim</p>
-        <h3 id="item-title">—</h3>
-      </div>
-      <button class="icon-btn" type="button" data-close aria-label="Kapat">
-        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5 5 15"/></svg>
-      </button>
+    <header class="d-h">
+      <span class="av lg" id="item-av" aria-hidden="true"></span>
+      <div class="d-ttl"><h3 id="item-title">—</h3><p id="item-eyebrow">—</p></div>
+      <button class="ib" type="button" data-close aria-label="Kapat"><svg class="i" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5 5 15"/></svg></button>
     </header>
 
-    <div class="sheet-media" id="item-media" hidden></div>
+    <div class="d-b">
+      <div class="media" id="item-media" hidden></div>
+      <div class="st-row" id="item-status" role="group" aria-label="Durum"></div>
+      <div id="item-plan"></div>
 
-    <div class="sheet-body" id="item-view"></div>
+      <div class="dtabs" id="item-tabs" role="tablist">
+        <button type="button" role="tab" data-tab="revize">Revizeler <b id="tab-rev-n"></b></button>
+        <button type="button" role="tab" data-tab="yorum">Yorumlar <b id="tab-yor-n"></b></button>
+        <button type="button" role="tab" data-tab="bilgi">Bilgi</button>
+      </div>
 
-    <div class="sheet-body" id="item-edit" hidden>
-      <label>Eğitmen<input id="f-egitmen" autocomplete="off" required></label>
-      <div class="grid2">
-        <label>Çekim türü<select id="f-tur"><option>Teorik</option><option>Klinik</option><option>Ofis</option></select></label>
-        <label>Durum<select id="f-durum"></select></label>
+      <div id="item-thread-pane">
+        <div id="item-revplan"></div>
+        <ul class="thread" id="thread"></ul>
+        <div id="item-composer"></div>
       </div>
-      <div class="grid2">
-        <label>Sıra no<input id="f-sira" type="number" min="1" step="1" inputmode="numeric"></label>
-        <label>Teslim tarihi<input id="f-teslim" type="date"></label>
+
+      <div id="item-view" class="facts-pane"></div>
+
+      <div id="item-edit" class="form" hidden>
+        <label>Eğitmen<input id="f-egitmen" autocomplete="off" required></label>
+        <div class="grid2">
+          <label>Çekim türü<select id="f-tur"><option>Teorik</option><option>Klinik</option><option>Ofis</option></select></label>
+          <label>Durum<select id="f-durum"></select></label>
+        </div>
+        <div class="grid2">
+          <label>Sıra no<input id="f-sira" type="number" min="1" step="1" inputmode="numeric"></label>
+          <label>Teslim tarihi<input id="f-teslim" type="date"></label>
+        </div>
+        <div class="grid2">
+          <label>Dil<input id="f-dil" list="diller" autocomplete="off" placeholder="Türkçe"></label>
+          <label>Çekim adı<input id="f-ad" autocomplete="off" placeholder="Ör. W&amp;H Ofis Çekimi"></label>
+        </div>
+        <datalist id="diller"><option value="Türkçe"><option value="İngilizce"><option value="Arapça"><option value="Almanca"><option value="Fransızca"><option value="Rusça"><option value="İspanyolca"><option value="Azerice"></datalist>
+        <label>Vimeo linki<input id="f-vimeo" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://vimeo.com/…"></label>
+        <p class="field-hint" id="f-vimeo-hint" role="status"></p>
+        <label>İndirme linki<input id="f-link" type="url" inputmode="url" autocomplete="off" placeholder="https://"></label>
+        <label>Not<textarea id="f-not" rows="3"></textarea></label>
+        <p class="form-err" id="f-err" role="alert"></p>
       </div>
-      <div class="grid2">
-        <label>Dil <small>(Türkçe dışı ayrı sekmede)</small><input id="f-dil" list="diller" autocomplete="off" placeholder="Türkçe"></label>
-        <label>Çekim adı <small>(isteğe bağlı)</small><input id="f-ad" autocomplete="off" placeholder="Ör. W&amp;H Ofis Çekimi"></label>
-      </div>
-      <datalist id="diller"><option value="Türkçe"><option value="İngilizce"><option value="Arapça"><option value="Almanca"><option value="Fransızca"><option value="Rusça"><option value="İspanyolca"><option value="Azerice"></datalist>
-      <label>Vimeo linki <small>(montajlanınca yapıştır; video burada açılır)</small><input id="f-vimeo" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://vimeo.com/…"></label>
-      <p class="field-hint" id="f-vimeo-hint" role="status"></p>
-      <label>İndirme linki <small>(myairbridge vb., isteğe bağlı)</small><input id="f-link" type="url" inputmode="url" autocomplete="off" placeholder="https://"></label>
-      <label class="check"><input id="f-disk" type="checkbox"> Medya başka diskte</label>
-      <label>Not<textarea id="f-not" rows="3" placeholder="Revize istekleri, eksik dosyalar, teslim notu…"></textarea></label>
-      <p class="form-err" id="f-err" role="alert"></p>
     </div>
 
-    <div class="sheet-body extra" id="item-extra" hidden></div>
-
-    <footer class="sheet-foot" id="item-foot">
-      <button class="btn danger" type="button" id="btn-del">Sil</button>
-      <span class="del-confirm" id="del-confirm" hidden>Silinsin mi? <button class="btn danger solid" type="button" id="btn-del-yes">Evet, sil</button></span>
-      <span class="spacer"></span>
-      <button class="btn" type="button" data-close>Vazgeç</button>
-      <button class="btn primary" type="submit" id="btn-save">Kaydet</button>
+    <footer class="d-f" id="item-foot">
+      <span id="item-dl"></span>
+      <span class="sp"></span>
+      <span class="edit-acts" id="edit-acts">
+        <button class="btn danger" type="button" id="btn-del">Sil</button>
+        <span class="del-confirm" id="del-confirm" hidden>Silinsin mi? <button class="btn danger solid" type="button" id="btn-del-yes">Evet, sil</button></span>
+        <button class="btn pri" type="submit" id="btn-save">Kaydet</button>
+      </span>
     </footer>
   </form>
 </dialog>
@@ -164,41 +167,39 @@
   <form id="auth-form" method="dialog">
     <header class="sheet-head">
       <div><p class="eyebrow">Yalnız pano sahibi</p><h3 id="auth-title">Düzenleme modu</h3></div>
-      <button class="icon-btn" type="button" data-close aria-label="Kapat">
-        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5 5 15"/></svg>
-      </button>
+      <button class="ib" type="button" data-close aria-label="Kapat"><svg class="i" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5 5 15"/></svg></button>
     </header>
     <div class="sheet-body">
-      <p class="muted">Değişiklikler GitHub deposundaki <code>data.json</code> dosyasına kaydedilir. Bu depo için yazma izni olan GitHub anahtarını (fine-grained token) gir. Anahtar yalnız bu tarayıcıda saklanır.</p>
+      <p class="muted">Bu depoya yazma izni olan GitHub anahtarını gir. Anahtar yalnız bu tarayıcıda saklanır.</p>
       <label>GitHub anahtarı<input id="f-token" type="password" autocomplete="off" spellcheck="false" required></label>
       <p class="form-err" id="auth-err" role="alert"></p>
     </div>
     <footer class="sheet-foot">
-      <span class="spacer"></span>
+      <span class="sp"></span>
       <button class="btn" type="button" data-close>Vazgeç</button>
-      <button class="btn primary" type="submit" id="btn-auth">Bağlan</button>
+      <button class="btn pri" type="submit" id="btn-auth">Bağlan</button>
     </footer>
   </form>
 </dialog>
+
 <dialog id="dlg-keys" class="sheet" aria-labelledby="keys-title">
   <form id="key-form" method="dialog">
     <header class="sheet-head">
       <div><p class="eyebrow">Yalnız yönetici · <span id="key-count"></span></p><h3 id="keys-title">Erişim anahtarları</h3></div>
-      <button class="icon-btn" type="button" data-close aria-label="Kapat">
-        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5 5 15"/></svg>
-      </button>
+      <button class="ib" type="button" data-close aria-label="Kapat"><svg class="i" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 5l10 10M15 5 5 15"/></svg></button>
     </header>
     <div class="sheet-body">
-      <p class="muted">Panoyu görebilecek her kişi için ayrı bir anahtar üret. Anahtarı silersen o kişi bir daha giremez, diğerleri etkilenmez.</p>
+      <p class="muted">Her kişiye ayrı anahtar üret. Silinen anahtarla bir daha girilemez, diğerleri etkilenmez.</p>
       <div class="key-gen">
         <label>Kimin için?<input id="f-keyname" autocomplete="off" placeholder="Ör. Ayça Yılmaz"></label>
-        <button class="btn primary" type="submit" id="btn-keygen">Anahtar üret</button>
+        <button class="btn pri" type="submit" id="btn-keygen">Anahtar üret</button>
       </div>
+      <label class="check" id="keyadmin-row"><input id="f-keyadmin" type="checkbox"> Yönetici anahtarı (gizli revize planlarını da açar; Claude bağlantısı için)</label>
       <p class="form-err" id="key-err" role="alert"></p>
       <div class="key-new" id="key-new" hidden>
         <p class="eyebrow">Yeni anahtar · <span id="key-for"></span></p>
         <code class="key-value" id="key-value"></code>
-        <p class="muted">Bu anahtar yalnız şimdi gösteriliyor. Kopyalayıp ilgili kişiye gönder.</p>
+        <p class="muted">Bu anahtar yalnız şimdi gösteriliyor.</p>
         <div class="key-copy">
           <button class="btn" type="button" id="btn-copy-key">Anahtarı kopyala</button>
           <button class="btn" type="button" id="btn-copy-msg">Link + anahtar mesajını kopyala</button>
@@ -208,7 +209,7 @@
       <ul class="key-list" id="key-list"></ul>
 
       <p class="sec-title">Revize dosyası yükleme</p>
-      <p class="muted">Hocaların revize dosyası yükleyebilmesi için ayrı bir GitHub deposu ve yalnız o depoya yazabilen bir anahtar gir. Dosyalar şifreli saklanır.</p>
+      <p class="muted">Hocaların revize yazabilmesi için ayrı bir depo ve yalnız o depoya yazabilen bir anahtar.</p>
       <div class="grid2">
         <label>Revize deposu<input id="f-rev-repo" autocomplete="off" spellcheck="false" placeholder="MonarkCo/Trigemy-revize"></label>
         <label>Yükleme anahtarı<input id="f-rev-token" type="password" autocomplete="off" spellcheck="false"></label>

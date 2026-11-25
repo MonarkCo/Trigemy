@@ -1,6 +1,7 @@
 "use strict";
 /* Trigemy · Montaj Takibi
-   Veri: depodaki data.json. Herkes okur; düzenleme modunda GitHub anahtarıyla aynı dosyaya commit atılır. */
+   Veri: depodaki data.json (şifreli). Herkes okur; düzenleme modunda GitHub anahtarıyla aynı dosyaya commit atılır.
+   Yönetici planları: ozel.json, ayrı bir anahtarla şifreli; yalnız yönetici erişim anahtarları açar. */
 
 const DURUMLAR = [
   { id: "bekliyor",    ad: "Montaj Bekliyor", renk: "--st-bekliyor" },
@@ -12,18 +13,30 @@ const DURUMLAR = [
 const BITEN = new Set(["montajlandi", "yayinda"]);
 const VIDEOLU = new Set(["montajlandi", "revize", "yayinda"]);   // montajlanınca Vimeo'ya konur, revize ve yayın aynı kartta sürer
 const durumOf = (id) => DURUMLAR.find((d) => d.id === id) || DURUMLAR[0];
+// revize akışının aşamaları (kartta herkese görünür; ayrıntı yalnız yöneticide)
+const ASAMALAR = [
+  { id: "geldi",     ad: "Geldi",     kart: "Revize geldi" },
+  { id: "analiz",    ad: "Analiz",    kart: "İnceleniyor" },
+  { id: "onay",      ad: "Onay",      kart: "İnceleniyor", yon: "Onayını bekliyor" },
+  { id: "isleniyor", ad: "İşleniyor", kart: "İşleniyor" },
+  { id: "hazir",     ad: "Hazır",     kart: "Hazır" },
+];
+const asamaIdx = (id) => Math.max(0, ASAMALAR.findIndex((a) => a.id === id));
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch {} },
 };
 
-const CFG = Object.assign({ owner: "", repo: "", branch: "main", path: "data.json" }, window.TRIGEMY || {});
+const CFG = Object.assign({ owner: "", repo: "", branch: "main", path: "data.json", api: "https://api.github.com" }, window.TRIGEMY || {});
 if (!CFG.owner && location.hostname.endsWith(".github.io")) {
   CFG.owner = location.hostname.split(".")[0];
   CFG.repo = location.pathname.split("/").filter(Boolean)[0] || CFG.owner + ".github.io";
 }
-const API = CFG.owner && CFG.repo ? `https://api.github.com/repos/${CFG.owner}/${CFG.repo}/contents/${CFG.path}` : "";
+const REPO_API = CFG.owner && CFG.repo ? `${CFG.api}/repos/${CFG.owner}/${CFG.repo}` : "";
+const API = REPO_API ? `${REPO_API}/contents/${CFG.path}` : "";
+const OZEL_PATH = "ozel.json";
+const OZEL_API = REPO_API ? `${REPO_API}/contents/${OZEL_PATH}` : "";
 const TOKEN_KEY = "trigemy_gh_token";
 const KEY_KEY = "trigemy_pano_anahtar";
 
@@ -32,8 +45,9 @@ const S = {
   token: store.get(TOKEN_KEY), edit: false,
   view: store.get("trigemy_view") || (matchMedia("(max-width: 680px)").matches ? "liste" : "pano"),
   sekme: location.hash === "#yabanci" ? "yabanci" : location.hash === "#turkce" ? "tr" : store.get("trigemy_sekme") || "tr",
-  tur: "", q: "", current: null, saveTimer: null, saving: false, dirty: false,
-  dek: null, enc: false, lastDoc: null, anahtarlar: [], myKeyId: null, revize: {},   // dek: çözülmüş veri anahtarı
+  tur: "", q: "", durumF: "", current: null, tab: "revize", saveTimer: null, saving: false, dirty: false,
+  dek: null, enc: false, lastDoc: null, anahtarlar: [], myKeyId: null, myKeyStr: null, revize: {},   // dek: çözülmüş veri anahtarı
+  ydek: null, ozel: null, ozelKeys: [], ozelSha: null, ozelDirty: false, secim: null,               // ydek: yönetici anahtarı
 };
 
 /* ---------- yardımcılar ---------- */
@@ -50,6 +64,25 @@ function h(tag, attrs, ...kids) {
   for (const c of kids.flat()) if (c != null && c !== false) n.append(c);
   return n;
 }
+const svgNS = "http://www.w3.org/2000/svg";
+function ico(d, size) {
+  const s = document.createElementNS(svgNS, "svg");
+  s.setAttribute("viewBox", "0 0 20 20"); s.setAttribute("class", "i"); s.setAttribute("aria-hidden", "true");
+  if (size) s.style.cssText = `width:${size}px;height:${size}px`;
+  s.innerHTML = d;
+  return s;
+}
+const I = {
+  play: '<path d="M7 4.5v11l9-5.5z" style="fill:currentColor;stroke:none"/>',
+  rev: '<path d="M4 4h12v9H8l-4 3z"/>',
+  yor: '<circle cx="10" cy="10" r="6.5"/><path d="M7.5 9h5M7.5 11.5h3"/>',
+  cal: '<rect x="3.5" y="4.5" width="13" height="12" rx="2"/><path d="M3.5 8.5h13M7 2.5v4M13 2.5v4"/>',
+  chk: '<path d="m4.5 10.5 3.5 3.5 7.5-8"/>',
+  chk2: '<path d="m5 10.5 3.2 3 6.8-7" style="stroke-width:2.4"/>',
+  spark: '<path d="M10 2.5l1.8 4.2 4.2 1.8-4.2 1.8L10 14.5l-1.8-4.2L4 8.5l4.2-1.8z"/>',
+  lock: '<rect x="4.5" y="9" width="11" height="8" rx="2"/><path d="M7 9V6.5a3 3 0 0 1 6 0V9"/>',
+  dl: '<path d="M10 3.5v9M6 9l4 4 4-4M4 16.5h12"/>',
+};
 const cssVar = (name) => `var(${name})`;
 const trLower = (s) => (s || "").toLocaleLowerCase("tr");
 function fmtGun(iso) {
@@ -75,6 +108,9 @@ function fmtGoreli(iso) {
   if (g < 7) return g + " gün önce";
   return fmtKisa(iso);
 }
+const fmtSaatKisa = (ts) => new Date(ts).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+const bugunMu = (ts) => new Date(ts).toDateString() === new Date().toDateString();
+const anOf = (ts) => (bugunMu(ts) ? "bugün " + fmtSaatKisa(ts) : fmtGoreli(new Date(ts).toISOString()));
 // dil boşsa Türkçe; yabancı dil konuşan hocalar ayrı sekmede
 const yabanci = (r) => !!r.dil && trLower(r.dil) !== "türkçe";
 const sekmede = (r) => yabanci(r) === (S.sekme === "yabanci");
@@ -84,9 +120,18 @@ const b64dec = (b64) => new TextDecoder().decode(b64bytes(b64));
 const b64bytes = (b64) => Uint8Array.from(atob(b64.replace(/\s/g, "")), (c) => c.charCodeAt(0));
 const bytesb64 = (b) => { let s = ""; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000)); return btoa(s); };
 
+// avatar: adın baş harfleri, addan türeyen sabit renk çifti
+const GRAD = [["#7383ff", "#a37bff"], ["#43c58c", "#1f8f9b"], ["#f5a547", "#e0603d"], ["#b08cff", "#ff7ab6"], ["#4fb6ff", "#7383ff"], ["#ff8a65", "#f5a547"], ["#36c2c2", "#4f7cff"]];
+const THUMB = ["linear-gradient(135deg,#2c3a6e,#141a2e 60%,#2b2140)", "linear-gradient(135deg,#1e4a44,#0f1a1e 60%,#22314a)", "linear-gradient(135deg,#4a3420,#16120e 60%,#3a2234)", "linear-gradient(135deg,#3b2a5e,#121020 60%,#1f3350)"];
+const hashOf = (s) => { let x = 0; for (const c of s || "") x = (x * 31 + c.charCodeAt(0)) >>> 0; return x; };
+const basHarf = (s) => (s || "?").trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toLocaleUpperCase("tr");
+const avStyle = (s) => { const g = GRAD[hashOf(s) % GRAD.length]; return `--a1:${g[0]};--a2:${g[1]}`; };
+const av = (s, cls) => h("span", { class: "av" + (cls ? " " + cls : ""), style: avStyle(s), "aria-hidden": "true", text: basHarf(s) });
+
 /* ---------- şifreleme ----------
    Veri rastgele bir veri anahtarıyla (AES-GCM) şifreli. Her erişim anahtarı bu veri anahtarını ayrı ayrı sarar;
-   anahtar silinince onun sargısı da silinir, o kişi bir daha açamaz. Biçim sifrele.mjs ile aynı. */
+   anahtar silinince onun sargısı da silinir, o kişi bir daha açamaz. Biçim sifrele.mjs ile aynı.
+   ozel.json da aynı biçimde; ama onun anahtarını yalnız yönetici erişim anahtarları sarar. */
 const KDF_ITER = 100000;
 const ALFABE = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 const normKey = (s) => (s || "").toUpperCase().replace(/[^0-9A-Z]/g, "");
@@ -153,7 +198,7 @@ async function load({ quiet = false } = {}) {
       if (S.dek) { try { plain = await decryptDoc(doc, S.dek); } catch { S.dek = null; } }
       if (!plain && store.get(KEY_KEY)) {
         const u = await unwrapDek(doc, store.get(KEY_KEY));
-        if (u) { S.dek = u.dek; S.myKeyId = u.id; plain = await decryptDoc(doc, S.dek); }
+        if (u) { S.dek = u.dek; S.myKeyId = u.id; S.myKeyStr = store.get(KEY_KEY); plain = await decryptDoc(doc, S.dek); }
         else store.set(KEY_KEY, null);   // anahtar silinmiş
       }
       if (!plain) { showLock(); return; }
@@ -167,7 +212,8 @@ async function load({ quiet = false } = {}) {
     S.loaded = true;
     if (!quiet) banner("");
     render();
-    loadRevize().then(render);
+    loadRevize().then(() => { autoRevize(); render(); });
+    loadOzel().then(render);
   } catch (e) {
     S.loaded = true;
     if (!S.data.cekimler.length) render();
@@ -267,6 +313,120 @@ async function save(retry = true) {
   } finally { S.saving = false; }
 }
 
+/* ---------- yönetici planları (ozel.json) ----------
+   Revize gelince Claude maddeleri okur, kurgudaki yerlerine eşler ve bir plan yazar. Plan, hocaların anahtarıyla
+   açılamayan ayrı bir dosyadadır: { planlar: { <çekim>: { asama, ozet, maddeler:[{tc,sn,metin,tur,durum}], onay } } }.
+   Anahtarını yalnız "yönetici" işaretli erişim anahtarları sarar (pano sahibi ve Claude). */
+const isAdmin = () => !!S.ydek;
+const planOf = (id) => (S.ozel && S.ozel.planlar && S.ozel.planlar[id]) || null;
+async function loadOzel() {
+  if (!S.enc || !S.myKeyStr) return;
+  try {
+    let doc = null;
+    if (S.token && OZEL_API) {
+      const r = await fetch(`${OZEL_API}?ref=${encodeURIComponent(CFG.branch)}`, { headers: { Authorization: "Bearer " + S.token, Accept: "application/vnd.github+json" }, cache: "no-store" });
+      if (r.ok) { const j = await r.json(); S.ozelSha = j.sha; doc = JSON.parse(b64dec(j.content)); }
+      else if (r.status === 404) { S.ozelSha = null; await ozelKur(); return; }
+    } else {
+      const r = await fetch(OZEL_PATH + "?t=" + Date.now(), { cache: "no-store" });
+      if (r.ok) doc = await r.json();
+    }
+    if (!doc || !doc.sifreli || S.ozelDirty) return;
+    const u = S.ydek ? { dek: S.ydek } : await unwrapDek(doc, S.myKeyStr);
+    if (!u) return;   // bu anahtar yönetici değil
+    S.ydek = u.dek; S.ozelKeys = doc.anahtarlar || [];
+    S.ozel = Object.assign({ planlar: {} }, await decryptDoc(doc, S.ydek));
+    if (dlg.open) refreshItem();
+  } catch (e) { console.error(e); }
+}
+// ozel.json yoksa: pano sahibi düzenleme moduna ilk girdiğinde kurulur, yalnız onun anahtarı açar
+async function ozelKur() {
+  if (!S.edit || !S.myKeyStr || !S.myKeyId || S.ydek) return;
+  S.ydek = await crypto.subtle.generateKey({ name: "AES-GCM", length: 256 }, true, ["encrypt", "decrypt"]);
+  S.ozelKeys = [await wrapEntry(S.myKeyId, S.myKeyStr, S.ydek)];
+  S.ozel = { planlar: {} };
+  const me = (S.data.erisim || []).find((x) => x.id === S.myKeyId);
+  if (me && !me.yonetici) mutate(() => { me.yonetici = true; }, "Yönetici anahtarı işaretlendi");
+  await saveOzel();
+}
+async function saveOzel(retry = true) {
+  if (!S.token || !OZEL_API || !S.ydek) return false;
+  S.ozelDirty = true;
+  try {
+    const body = JSON.stringify(await encryptDoc(S.ozel, S.ydek, S.ozelKeys), null, 2) + "\n";
+    const r = await fetch(OZEL_API, {
+      method: "PUT", headers: { Accept: "application/vnd.github+json", Authorization: "Bearer " + S.token, "Content-Type": "application/json" },
+      body: JSON.stringify({ message: "Pano güncellendi", content: b64enc(body), sha: S.ozelSha || undefined, branch: CFG.branch }),
+    });
+    if (r.ok) { S.ozelSha = (await r.json()).content.sha; S.ozelDirty = false; return true; }
+    if ((r.status === 409 || r.status === 422) && retry) {
+      // Claude o arada planı güncellemiş: güncel hali oku, çekim başına daha yeni olanı tut
+      const g = await fetch(`${OZEL_API}?ref=${encodeURIComponent(CFG.branch)}`, { headers: { Authorization: "Bearer " + S.token }, cache: "no-store" });
+      if (!g.ok) throw new Error("HTTP " + g.status);
+      const j = await g.json(), doc = JSON.parse(b64dec(j.content)), theirs = await decryptDoc(doc, S.ydek);
+      const out = { ...theirs, planlar: { ...(theirs.planlar || {}) } };
+      for (const [id, p] of Object.entries(S.ozel.planlar || {})) {
+        const t = out.planlar[id];
+        if (!t || (p.guncelleme || "") >= (t.guncelleme || "")) out.planlar[id] = p;
+      }
+      const ids = new Set(S.ozelKeys.map((x) => x.id));
+      S.ozelKeys = [...S.ozelKeys, ...(doc.anahtarlar || []).filter((x) => !ids.has(x.id) && (S.data.erisim || []).some((e) => e.id === x.id))];
+      S.ozel = out; S.ozelSha = j.sha;
+      return await saveOzel(false);
+    }
+    throw new Error("HTTP " + r.status);
+  } catch (e) {
+    console.error(e);
+    S.ozelDirty = false;
+    banner("Gizli plan kaydedilemedi. Bağlantını kontrol edip tekrar dene.", "--danger");
+    return false;
+  }
+}
+function planMutate(id, fn) {
+  const p = planOf(id); if (!p) return;
+  fn(p); p.guncelleme = new Date().toISOString();
+  refreshItem();
+  saveOzel().then(() => refreshItem());
+}
+
+/* ---------- revize durumu ----------
+   Montajlandı ya da Yayında'daki bir karta, son durum değişikliğinden sonra revize isteği gelirse kart herkeste
+   kendiliğinden Revizede'ye geçer (kayıt beklemeden). Pano sahibi düzenleme modundaysa ya da revize bekçisi
+   çalışınca bu durum kalıcı olarak kaydedilir. */
+const revlerOf = (r) => { const e = revOf(r.id); return [...e.dosyalar, ...e.notlar.filter((n) => n.tur === "revize")]; };
+const yorumlarOf = (r) => revOf(r.id).notlar.filter((n) => n.tur === "yorum");
+const sonDurumTs = (r) => Date.parse(r.gecmis.length ? r.gecmis[r.gecmis.length - 1].tarih : r.guncelleme) || 0;
+// bu revize turunun başlangıcı: kartın en son Revizede dışı bir aşamaya geçtiği an
+const turBasi = (r) => { for (let i = r.gecmis.length - 1; i >= 0; i--) if (r.gecmis[i].durum !== "revize") return Date.parse(r.gecmis[i].tarih) || 0; return 0; };
+const sonRevTs = (r) => revlerOf(r).reduce((m, x) => Math.max(m, x.ts), 0);
+// otomatik taşıma bu özellik açıldıktan sonra gelen revizeler için: daha eski revizeler zaten elle işlendi
+const OTO_BASLANGIC = Date.parse("2026-11-25T00:00:00+03:00");
+function etkin(r) {
+  const son = sonRevTs(r);
+  if (BITEN.has(r.durum) && son > OTO_BASLANGIC && son > sonDurumTs(r)) return "revize";
+  return r.durum;
+}
+function asamaOf(r) {
+  if (r.durum !== "revize") return "geldi";
+  const a = r.rev && r.rev.asama;
+  if (!a) return "geldi";
+  if ((a === "isleniyor" || a === "hazir") && sonRevTs(r) > (Date.parse(r.rev.tarih) || 0)) return "geldi";   // işlenirken yeni revize geldi
+  return a;
+}
+const sicak = (r) => etkin(r) === "revize" && ["geldi", "analiz", "onay"].includes(asamaOf(r));
+const yeniRevler = (r) => revlerOf(r).filter((x) => x.ts > turBasi(r));
+function autoRevize() {
+  if (!S.edit || !S.loaded) return;
+  const now = new Date().toISOString();
+  const kayan = S.data.cekimler.filter((r) => etkin(r) === "revize" && r.durum !== "revize");
+  const tazele = S.data.cekimler.filter((r) => r.durum === "revize" && r.rev && asamaOf(r) !== r.rev.asama);
+  if (!kayan.length && !tazele.length) return;
+  mutate(() => {
+    for (const r of kayan) { r.durum = "revize"; r.guncelleme = now; r.gecmis.push({ durum: "revize", tarih: now, oto: true }); r.rev = { asama: "geldi", tarih: now }; }
+    for (const r of tazele) r.rev = { asama: "geldi", tarih: now };
+  }, "Revize gelen kartlar Revizede'ye geçti");
+}
+
 /* ---------- görünüm ---------- */
 function banner(text, color) {
   const b = $("#banner");
@@ -275,8 +435,14 @@ function banner(text, color) {
 }
 function syncChip(text, color) {
   const s = $("#sync");
-  if (!S.edit) { s.hidden = true; return; }
+  if (!S.edit) { s.hidden = true; renderLive(); return; }
   s.hidden = false; s.textContent = text; s.style.setProperty("--c", color);
+  $("#live").hidden = true;
+}
+function renderLive() {
+  const upd = S.data.guncelleme;
+  $("#live").hidden = S.edit || !upd || !S.loaded;
+  $("#live-t").textContent = upd ? "Güncellendi · " + fmtGoreli(upd) : "";
 }
 function visible(r) {
   if (S.tur && r.tur !== S.tur) return false;
@@ -292,32 +458,29 @@ function render() {
   for (const b of document.querySelectorAll("[data-sekme]")) b.setAttribute("aria-selected", String(b.dataset.sekme === S.sekme));
   const all = S.data.cekimler.filter(sekmede);
   const n = all.length;
-  const sayi = Object.fromEntries(DURUMLAR.map((d) => [d.id, all.filter((r) => r.durum === d.id).length]));
-  const biten = all.filter((r) => BITEN.has(r.durum)).length;
+  const sayi = Object.fromEntries(DURUMLAR.map((d) => [d.id, all.filter((r) => etkin(r) === d.id).length]));
+  const biten = sayi.montajlandi + sayi.yayinda;
   const pct = n ? Math.round((biten / n) * 100) : 0;
 
-  // genel durum
-  $("#pct").textContent = pct + "%";
-  $("#ring-val").style.strokeDashoffset = String(326.73 * (1 - (n ? biten / n : 0)));
-  $("#ring").setAttribute("aria-label", `Tamamlanma oranı yüzde ${pct}`);
-  $("#done-line").textContent = S.loaded ? (n ? `${n} çekimden ${biten} tanesinin montajı tamamlandı` : S.sekme === "yabanci" ? "Henüz yabancı dil çekimi eklenmedi" : "Henüz çekim eklenmedi") : "—";
-  const aktif = sayi.montajda + sayi.revize;
-  $("#sub-line").textContent = !S.loaded ? "Veriler yükleniyor…" :
-    aktif ? `Şu an ${aktif} çekim üzerinde çalışılıyor, ${sayi.bekliyor} çekim sırada.` : `${sayi.bekliyor} çekim montaj sırasında bekliyor.`;
-  $("#stack").replaceChildren(...DURUMLAR.filter((d) => sayi[d.id]).map((d) => h("i", { style: `--c:${cssVar(d.renk)};flex-grow:${sayi[d.id]}`, title: `${d.ad}: ${sayi[d.id]}` })));
-  $("#legend").replaceChildren(...DURUMLAR.map((d) => h("li", { style: `--c:${cssVar(d.renk)}` }, d.ad + " ", h("b", { text: String(sayi[d.id]) }))));
-
-  const kpi = (label, val, color, note) => h("div", { class: "kpi", style: `--c:${cssVar(color)}` }, h("span", { text: label }), h("b", { text: String(val) }), note ? h("small", { text: note }) : null);
+  // başlık ve genel durum
   const egitmen = new Set(all.map((r) => trLower(r.egitmen))).size;
-  $("#kpis").replaceChildren(
-    kpi("Toplam çekim", n, "--brand", `${egitmen} eğitmen`),
-    kpi("Montajda", sayi.montajda, "--st-montajda", "şu an kurguda"),
-    kpi("Revizede", sayi.revize, "--st-revize", "geri bildirim işleniyor"),
-    kpi("Tamamlanan", biten, "--st-montajlandi", sayi.yayinda ? `${sayi.yayinda} tanesi yayında` : "montajı biten"),
-  );
+  $("#head-sub").textContent = !S.loaded ? "Veriler yükleniyor…" : `${S.sekme === "yabanci" ? "Yabancı dil eğitmenleri" : "Türkçe eğitmenler"} · ${n} çekim · ${egitmen} eğitmen`;
+  countTo($("#pct"), pct);
+  $("#done-line").textContent = !S.loaded ? "" : n ? `tamamlandı · ${n} çekimden ${biten} tanesi bitti` : S.sekme === "yabanci" ? "Henüz yabancı dil çekimi eklenmedi" : "Henüz çekim eklenmedi";
+  const track = $("#track"), sig = DURUMLAR.map((d) => sayi[d.id]).join(",");
+  if (track.dataset.sig !== sig) {
+    track.dataset.sig = sig;
+    track.replaceChildren(...DURUMLAR.filter((d) => sayi[d.id]).map((d, i) => h("i", { title: `${d.ad}: ${sayi[d.id]}`, style: `--c:${cssVar(d.renk)};--n:${sayi[d.id]};--d:${i * 90}ms` })));
+  }
+  $("#legend").replaceChildren(...DURUMLAR.map((d) => h("button", {
+    type: "button", style: `--c:${cssVar(d.renk)}`, "aria-pressed": String(S.durumF === d.id), title: S.durumF === d.id ? "Süzmeyi kaldır" : "Yalnız bu aşamayı göster",
+    onclick: () => { S.durumF = S.durumF === d.id ? "" : d.id; render(); },
+  }, h("i"), d.ad, h("b", { text: String(sayi[d.id]) }))));
+  renderStats(all);
+  renderAlerts(all);
 
-  const upd = S.data.guncelleme;
-  $("#foot-upd").textContent = upd ? "Son güncelleme: " + fmtGun(upd) + " · " + fmtGoreli(upd) : "";
+  $("#foot-upd").textContent = S.data.guncelleme ? "Son güncelleme: " + fmtGun(S.data.guncelleme) : "";
+  renderLive();
 
   // görünümler
   $("#view-pano").hidden = S.view !== "pano";
@@ -328,18 +491,72 @@ function render() {
   $("#btn-forget").hidden = !S.enc;
   $("#btn-mode").textContent = S.edit ? "Düzenlemeyi kapat" : "Düzenle";
 
-  const rows = all.filter(visible).sort(bySira);
+  const rows = all.filter(visible).filter((r) => !S.durumF || etkin(r) === S.durumF).sort(bySira);
   if (S.view === "pano") renderBoard(rows); else renderTable(rows);
+}
+function countTo(el, v) {
+  const from = +el.dataset.v || 0;
+  el.dataset.v = String(v);
+  if (from === v) { el.textContent = String(v); return; }
+  const t0 = performance.now();
+  const step = (t) => { const k = Math.min(1, (t - t0) / 700); el.textContent = String(Math.round(from + (v - from) * (1 - Math.pow(1 - k, 3)))); if (k < 1) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+  setTimeout(() => { if (el.dataset.v === String(v)) el.textContent = String(v); }, 800);   // arka plandaki sekmede rAF durursa
+}
+function renderStats(all) {
+  const stat = (c, icon, label, val, right) => h("div", { class: "stat", style: `--c:${cssVar(c)}` },
+    h("span", { class: "ic" }, ico(icon)), h("div", null, h("p", { text: label }), h("b", { text: val, title: val })), right != null ? h("span", { class: "r", text: String(right) }) : null);
+  // açık revize
+  const acik = all.filter((r) => etkin(r) === "revize");
+  const madde = acik.reduce((s, r) => s + yeniRevler(r).length, 0);
+  // sıradaki teslim: bitmemiş çekimlerin en yakın teslim tarihi
+  const gun0 = new Date(); gun0.setHours(0, 0, 0, 0);
+  const teslim = all.filter((r) => r.teslim && (r.durum === "bekliyor" || r.durum === "montajda")).sort((a, b) => a.teslim.localeCompare(b.teslim))[0];
+  const kalan = teslim ? Math.round((new Date(teslim.teslim + "T00:00") - gun0) / 86400000) : null;
+  // bu hafta tamamlanan
+  const hafta = Date.now() - 7 * 86400000;
+  const bitenler = all.filter((r) => r.gecmis.some((g) => BITEN.has(g.durum) && Date.parse(g.tarih) > hafta));
+  $("#stats").replaceChildren(
+    stat("--st-revize", I.rev, "Açık revize", acik.length ? `${acik.length} çekimde${madde ? ` · ${madde} istek` : ""}` : "Bekleyen revize yok", acik.length),
+    stat(kalan != null && kalan < 0 ? "--danger" : "--st-montajda", I.cal, kalan != null && kalan < 0 ? "Teslim tarihi geçti" : "Sıradaki teslim",
+      teslim ? `${teslim.egitmen} · ${fmtKisa(teslim.teslim)}` : "Planlı teslim yok", kalan == null ? null : kalan === 0 ? "bugün" : Math.abs(kalan) + "g"),
+    stat("--st-montajlandi", I.chk, "Son 7 günde biten", bitenler.length ? bitenler.map((r) => r.egitmen).join(", ") : "Bu hafta biten yok", bitenler.length),
+  );
+}
+// pano sahibine: revize gelen, henüz işlenmeye başlamamış çekimler
+function renderAlerts(all) {
+  const box = $("#alerts");
+  if (!isAdmin() && !S.edit) { box.replaceChildren(); return; }
+  const list = all.filter(sicak).sort((a, b) => sonRevTs(b) - sonRevTs(a)).slice(0, 4);
+  box.replaceChildren(...list.map((r) => {
+    const yeni = yeniRevler(r), son = yeni.slice().sort((a, b) => b.ts - a.ts)[0];
+    const a = asamaOf(r), ai = asamaIdx(a), plan = planOf(r.id);
+    const avEl = av(r.egitmen, "md"), baslik = h("b", { text: `${r.egitmen} · ${yeni.length || revlerOf(r).length} yeni revize` });
+    const alt = h("p", { text: (r.durum === "revize" ? "Kart Revizede'ye geçti" : "Kart kendiliğinden Revizede'ye geçti") + (son ? " · " + anOf(son.ts) : "") });
+    if (son && !son.eski) notOku(son.path).then((k) => {
+      if (!k || !k.yazan || !avEl.isConnected) return;
+      avEl.replaceWith(av(k.yazan, "md"));
+      baslik.textContent = `${k.yazan}, ${r.egitmen} videosuna ${yeni.length} revize gönderdi`;
+    }).catch(() => {});
+    return h("div", { class: "alert" }, avEl,
+      h("div", { class: "txt" }, baslik, alt), h("span", { class: "sp" }),
+      h("div", { class: "steps-mini", "aria-label": "Revize aşaması" }, ASAMALAR.flatMap((s, i) => [
+        i ? h("em") : null, h("span", { class: i < ai ? "ok" : i === ai ? "now" : "" }, h("i"), s.id === "onay" ? "Onayın" : s.ad)]).filter(Boolean)),
+      h("button", { class: "btn " + (plan && a === "onay" ? "warm" : ""), type: "button", text: plan && a === "onay" ? "Planı gör" : "Aç", onclick: () => openItem(r.id, { tab: "revize" }) }));
+  }));
 }
 
 function renderBoard(rows) {
-  const board = $("#board");
-  board.replaceChildren(...DURUMLAR.map((d) => {
-    const items = rows.filter((r) => r.durum === d.id);
+  const board = $("#view-pano");
+  const cols = S.durumF ? DURUMLAR.filter((d) => d.id === S.durumF) : DURUMLAR;
+  board.classList.toggle("tek", !!S.durumF);
+  let k = 0;
+  board.replaceChildren(...cols.map((d) => {
+    const items = rows.filter((r) => etkin(r) === d.id);
     const col = h("section", { class: "col", style: `--c:${cssVar(d.renk)}`, "aria-label": d.ad },
-      h("div", { class: "col-head" }, h("span", { class: "col-dot" }), h("h3", { text: d.ad }), h("span", { class: "col-count", text: String(items.length) })),
-      !S.loaded ? [h("div", { class: "skel" }), h("div", { class: "skel" })] :
-      items.length ? items.map(card) : h("div", { class: "col-empty", text: S.edit ? "Kartı buraya sürükle" : "Bu aşamada çekim yok" }),
+      h("div", { class: "col-h" }, h("i"), h("h3", { text: d.ad }), h("span", { class: "n", text: String(items.length) })),
+      h("div", { class: "cards" }, !S.loaded ? [h("div", { class: "skel" }), h("div", { class: "skel" })] :
+        items.length ? items.map((r) => card(r, k++)) : h("div", { class: "empty", text: S.edit ? "Kartı buraya sürükle" : "Bu aşamada çekim yok" })),
     );
     if (S.edit) {
       col.addEventListener("dragover", (e) => { e.preventDefault(); col.classList.add("over"); });
@@ -350,26 +567,23 @@ function renderBoard(rows) {
   }));
 }
 
-function card(r) {
-  const d = durumOf(r.durum);
-  const sel = S.edit ? h("select", { "aria-label": "Durumu değiştir", onclick: (e) => e.stopPropagation(), onchange: (e) => setDurum(r.id, e.target.value) },
-    DURUMLAR.map((x) => h("option", { value: x.id, selected: x.id === r.durum, text: x.ad }))) : null;
-  const v = vimeoParse(r.vimeo);
-  const c = h("article", { class: "card", tabindex: "0", draggable: S.edit ? "true" : null, style: `--c:${cssVar(d.renk)}`, "aria-label": `${r.egitmen}, ${cekimAdi(r)}, ${d.ad}` },
-    v ? vimeoThumb(r, v) : S.edit && VIDEOLU.has(r.durum) ? vimeoPaste(r) : null,
-    h("div", { class: "card-top" }, h("div", { class: "card-name", text: r.egitmen || "İsimsiz" }), r.sira ? h("span", { class: "card-no", text: "#" + r.sira }) : null),
-    h("div", { class: "chips" },
-      yabanci(r) ? h("span", { class: "chip lang", text: r.dil }) : null,
-      h("span", { class: "chip " + r.tur, text: cekimAdi(r) }),
-      r.disk ? h("span", { class: "chip warn", text: "Medya başka diskte" }) : null,
-      r.teslim ? h("span", { class: "chip date", text: "Teslim " + fmtKisa(r.teslim) }) : null),
-    r.not ? h("div", { class: "card-note", text: r.not }) : null,
-    revizeChip(r),
-    VIDEOLU.has(r.durum) || v || safeUrl(r.link) ? h("div", { class: "card-acts" },
-      safeUrl(r.link) ? h("a", { class: "btn small primary", href: safeUrl(r.link), target: "_blank", rel: "noopener noreferrer", text: "Videoyu indir", onclick: (e) => e.stopPropagation() }) : null,
-      // montajı biten her kartta (yükleme ayarı yoksa pencere ne yapılacağını söyler)
-      VIDEOLU.has(r.durum) || v ? h("button", { class: "btn small", type: "button", text: "Revize ekle", onclick: (e) => { e.stopPropagation(); openItem(r.id, { upload: true, revize: true }); } }) : null) : null,
-    h("div", { class: "card-foot" }, h("span", { text: fmtGoreli(r.guncelleme) }), sel),
+function card(r, i) {
+  const st = etkin(r), v = vimeoParse(r.vimeo);
+  const revN = revlerOf(r).length, yorN = yorumlarOf(r).length;
+  const acik = r.durum === "bekliyor" || r.durum === "montajda";
+  const gec = r.teslim && acik && new Date(r.teslim + "T23:59") < new Date();
+  const c = h("article", { class: "card" + (isAdmin() && sicak(r) ? " hot" : "") + (S.current === r.id && dlg.open ? " sel" : ""), tabindex: "0", draggable: S.edit ? "true" : null,
+    "data-id": r.id, style: `--d:${Math.min(i, 14) * 30}ms`, "aria-label": `${r.egitmen}, ${cekimAdi(r)}, ${durumOf(st).ad}` },
+    v ? vimeoThumb(r, v) : S.edit && VIDEOLU.has(st) ? vimeoPaste(r) : null,
+    h("div", { class: "who" }, av(r.egitmen), h("div", null, h("b", { text: r.egitmen || "İsimsiz" }), h("small", { text: cekimAdi(r) })), r.sira ? h("span", { class: "no", text: "#" + r.sira }) : null),
+    st === "revize" ? flowEl(r) : null,
+    r.not && S.edit ? h("div", { class: "card-note", text: r.not }) : null,
+    h("div", { class: "meta" },
+      yabanci(r) ? h("span", { class: "tag lang", text: r.dil }) : null,
+      r.teslim && acik ? h("span", { class: "tag " + (gec ? "late" : "due") }, h("span", { class: "d" }), (gec ? "Gecikti · " : "Teslim ") + fmtKisa(r.teslim)) : null,
+      revN && st !== "revize" ? h("span", { class: "tag rev", title: "Revize isteği" }, ico(I.rev, 12), String(revN)) : null,
+      yorN ? h("span", { class: "tag", title: "Yorum" }, ico(I.yor, 12), String(yorN)) : null,
+      h("span", { class: "when", text: fmtGoreli(r.guncelleme) })),
   );
   c.addEventListener("click", () => openItem(r.id));
   c.addEventListener("keydown", (e) => { if (e.target === c && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openItem(r.id); } });
@@ -379,21 +593,30 @@ function card(r) {
   }
   return c;
 }
+function flowEl(r) {
+  const a = asamaOf(r), ai = asamaIdx(a), as = ASAMALAR[ai];
+  const n = yeniRevler(r).length, plan = isAdmin() ? planOf(r.id) : null;
+  let sag = n ? `${n} istek` : "";
+  if (plan && plan.maddeler && plan.maddeler.length) sag = `${plan.maddeler.length} madde`;
+  if (a === "isleniyor" && r.rev && r.rev.n) sag = `${r.rev.bitti || 0} / ${r.rev.n}`;
+  return h("div", { class: "flow" },
+    h("div", { class: "row" }, ASAMALAR.map((s, i) => h("i", { class: i < ai ? "on" : i === ai ? (a === "hazir" ? "on" : "now") : "" }))),
+    h("p", null, (isAdmin() && as.yon) || as.kart, h("span", { text: sag })));
+}
 
 function renderTable(rows) {
   const tb = $("#rows");
-  if (!S.loaded) { tb.replaceChildren(h("tr", null, h("td", { colspan: "7" }, h("div", { class: "skel" })))); return; }
-  if (!rows.length) { tb.replaceChildren(h("tr", null, h("td", { colspan: "7", class: "note", text: "Aramaya uyan çekim yok." }))); return; }
+  if (!S.loaded) { tb.replaceChildren(h("tr", null, h("td", { colspan: "6" }, h("div", { class: "skel line" })))); return; }
+  if (!rows.length) { tb.replaceChildren(h("tr", null, h("td", { colspan: "6", class: "dim", text: "Aramaya uyan çekim yok." }))); return; }
   tb.replaceChildren(...rows.map((r) => {
-    const d = durumOf(r.durum);
+    const st = etkin(r), d = durumOf(st), revN = revlerOf(r).length;
     const tr = h("tr", { tabindex: "0" },
-      h("td", { class: "num", text: r.sira ? "#" + r.sira : "—" }),
-      h("td", { class: "name", text: r.egitmen }),
-      h("td", null, yabanci(r) ? [h("span", { class: "chip lang", text: r.dil }), " "] : null, h("span", { class: "chip " + r.tur, text: cekimAdi(r) }), r.disk ? [" ", h("span", { class: "chip warn", text: "Başka diskte" })] : null),
-      h("td", null, h("span", { class: "pill", style: `--c:${cssVar(d.renk)}`, text: d.ad })),
-      h("td", { "data-k": r.teslim ? "Teslim" : null, text: r.teslim ? fmtKisa(r.teslim) : "" }),
-      h("td", { "data-k": "Güncelleme", text: fmtGoreli(r.guncelleme) }),
-      h("td", { class: "note", text: r.not || "" }),
+      h("td", { class: "name" }, h("div", { class: "who" }, av(r.egitmen), h("div", null, h("b", { text: r.egitmen }), r.sira ? h("small", { text: "#" + r.sira }) : null))),
+      h("td", { class: "dim" }, yabanci(r) ? r.dil + " · " : "", cekimAdi(r)),
+      h("td", null, h("span", { class: "pill", style: `--c:${cssVar(d.renk)}`, text: st === "revize" ? d.ad + " · " + ASAMALAR[asamaIdx(asamaOf(r))].kart.toLocaleLowerCase("tr") : d.ad })),
+      h("td", { class: "dim", text: r.teslim ? fmtKisa(r.teslim) : "—" }),
+      h("td", { class: "dim", text: revN ? String(revN) : "—" }),
+      h("td", { class: "dim", text: fmtGoreli(r.guncelleme) }),
     );
     tr.addEventListener("click", () => openItem(r.id));
     tr.addEventListener("keydown", (e) => { if (e.key === "Enter") openItem(r.id); });
@@ -403,41 +626,30 @@ function renderTable(rows) {
 
 function setDurum(id, durum) {
   const r = S.data.cekimler.find((x) => x.id === id);
-  if (!r || r.durum === durum || !S.edit) return;
+  if (!r || !S.edit) return;
+  if (r.durum === durum && etkin(r) === durum) return;
   mutate(() => {
     const now = new Date().toISOString();
     r.durum = durum; r.guncelleme = now; r.gecmis.push({ durum, tarih: now });
+    if (durum === "revize") r.rev = { asama: "geldi", tarih: now }; else delete r.rev;
   }, `${r.egitmen} (${cekimAdi(r)}) → ${durumOf(durum).ad}`);
-  if (VIDEOLU.has(durum) && !r.vimeo) openItem(id, { focus: "#f-vimeo" });   // montajlanan videonun Vimeo linki
+  if (dlg.open && S.current === id) refreshItem();
+  if (VIDEOLU.has(durum) && !r.vimeo) openItem(id, { tab: "bilgi", focus: "#f-vimeo" });   // montajlanan videonun Vimeo linki
 }
 
-/* ---------- ayrıntı / düzenleme penceresi ---------- */
+/* ---------- çekim paneli ---------- */
 const dlg = $("#dlg-item");
 for (const d of DURUMLAR) $("#f-durum").append(h("option", { value: d.id, text: d.ad }));
 
 function openItem(id, opts = {}) {
   const r = id ? S.data.cekimler.find((x) => x.id === id) : null;
   S.current = r ? r.id : null;
-  const d = durumOf(r ? r.durum : "bekliyor");
-  $("#item-eyebrow").textContent = r ? (yabanci(r) ? r.dil + " · " : "") + cekimAdi(r) : "Yeni kayıt";
-  $("#item-title").textContent = r ? r.egitmen : "Yeni çekim";
+  S.secim = null;
+  if (!r) S.tab = "bilgi";
+  else if (opts.tab) S.tab = opts.tab;
+  else S.tab = VIDEOLU.has(etkin(r)) || revlerOf(r).length ? "revize" : yorumlarOf(r).length ? "yorum" : "bilgi";
 
-  // görüntüleme
-  const view = $("#item-view");
-  if (r) {
-    view.replaceChildren(...[
-      h("div", { class: "facts" },
-        fact("Durum", h("span", { class: "pill", style: `--c:${cssVar(d.renk)}`, text: d.ad })),
-        fact("Çekim", cekimAdi(r)),
-        fact("Sıra", r.sira ? "#" + r.sira : "—"),
-        fact("Teslim", r.teslim ? fmtGun(r.teslim) : "—")),
-      r.disk ? h("div", { class: "note-box", style: "border-left:3px solid var(--danger)", text: "Bu çekimin medyası başka bir diskte." }) : null,
-      r.not ? [h("p", { class: "sec-title", text: "Not" }), h("div", { class: "note-box", text: r.not })] : null,
-      r.gecmis.length ? [h("p", { class: "sec-title", text: "Süreç" }),
-        h("ol", { class: "timeline" }, [...r.gecmis].reverse().map((g) => h("li", { style: `--c:${cssVar(durumOf(g.durum).renk)}` }, h("span", { text: durumOf(g.durum).ad }), h("time", { datetime: g.tarih, text: fmtGun(g.tarih) }))))] : null,
-    ].flat().filter(Boolean));
-  }
-  // düzenleme
+  // düzenleme formu
   $("#f-egitmen").value = r?.egitmen || "";
   $("#f-tur").value = r?.tur || "Teorik";
   $("#f-durum").value = r?.durum || "bekliyor";
@@ -445,29 +657,151 @@ function openItem(id, opts = {}) {
   $("#f-teslim").value = r?.teslim || "";
   $("#f-ad").value = r?.ad || "";
   $("#f-dil").value = r ? r.dil || "Türkçe" : S.sekme === "yabanci" ? "İngilizce" : "Türkçe";
-  $("#f-disk").checked = !!r?.disk;
   $("#f-not").value = r?.not || "";
   $("#f-link").value = r?.link || "";
   $("#f-vimeo").value = r?.vimeo || "";
   $("#f-err").textContent = "";
-  vimeoHint();
-  showMedia(r ? vimeoParse(r.vimeo) : null, opts);
-  renderExtra(r, opts);
+  $("#f-vimeo-hint").textContent = "";
+  $("#del-confirm").hidden = true;
 
-  const editing = S.edit;
-  view.hidden = editing || !r;
-  $("#item-edit").hidden = !editing;
-  $("#item-foot").hidden = !editing;
-  $("#btn-del").hidden = !r; $("#del-confirm").hidden = true;
-  dlg.showModal();
-  if (editing && !r) $("#f-egitmen").focus();
-  if (editing && opts.focus) $(opts.focus).focus();
-  if (opts.upload && $("#c-metin")) setTimeout(() => { $("#c-metin").scrollIntoView({ block: "nearest" }); $("#c-metin").focus(); }, 60);
-  else if (opts.upload && $("#rev-kapali")) setTimeout(() => $("#rev-kapali").scrollIntoView({ block: "nearest" }), 60);
+  showMedia(r ? vimeoParse(r.vimeo) : null, opts);
+  refreshItem(opts);
+  if (!dlg.open) dlg.showModal();
+  $(".d-b").scrollTop = 0;
+  for (const c of document.querySelectorAll(".card")) c.classList.toggle("sel", c.dataset.id === S.current);
+  if (S.edit && !r) $("#f-egitmen").focus();
+  if (S.edit && opts.focus) setTimeout(() => $(opts.focus).focus(), 50);
 }
-// pencere hangi yoldan kapanırsa kapansın (çarpı, Esc, kaydet) video da durur; close olayı arka plandaki sekmede gecikebiliyor
-new MutationObserver(() => { if (!dlg.open) stopMedia(); }).observe(dlg, { attributes: true, attributeFilter: ["open"] });
-function fact(label, val) { return h("div", { class: "fact" }, h("span", { text: label }), typeof val === "string" ? h("b", { text: val }) : val); }
+// paneli o anki veriyle yeniden çizer (formdaki yazılara dokunmaz)
+function refreshItem(opts = {}) {
+  if (!dlg.open && !opts) return;
+  const r = S.current && S.data.cekimler.find((x) => x.id === S.current);
+  if (!r && !S.edit) return;
+  const st = r ? etkin(r) : "bekliyor";
+  const a = $("#item-av");
+  a.textContent = r ? basHarf(r.egitmen) : "+"; a.setAttribute("style", avStyle(r ? r.egitmen : "Yeni"));
+  $("#item-title").textContent = r ? r.egitmen : "Yeni çekim";
+  $("#item-eyebrow").textContent = r ? [yabanci(r) ? r.dil : null, cekimAdi(r), r.sira ? "#" + r.sira : null, r.teslim && (r.durum === "bekliyor" || r.durum === "montajda") ? "Teslim " + fmtKisa(r.teslim) : null].filter(Boolean).join(" · ") : "Bilgileri doldurup kaydet";
+
+  // durum
+  $("#item-status").hidden = !r;
+  if (r) $("#item-status").replaceChildren(...DURUMLAR.map((d) => h("button", {
+    type: "button", style: `--c:${cssVar(d.renk)}`, "aria-pressed": String(st === d.id), disabled: !S.edit,
+    title: S.edit ? `${d.ad} aşamasına taşı` : null, onclick: () => setDurum(r.id, d.id),
+  }, h("i"), d.ad)));
+
+  // sekmeler
+  const tabs = $("#item-tabs");
+  tabs.hidden = !r;
+  if (r) {
+    refreshTabsCount(r);
+    for (const b of tabs.querySelectorAll("[data-tab]")) b.setAttribute("aria-selected", String(b.dataset.tab === S.tab));
+  }
+  const thread = !!r && (S.tab === "revize" || S.tab === "yorum");
+  $("#item-thread-pane").hidden = !thread;
+  $("#item-view").hidden = !r || S.tab !== "bilgi" || S.edit;
+  const formda = S.edit && (S.tab === "bilgi" || !r);
+  $("#item-edit").hidden = !formda;
+  $("#edit-acts").hidden = !formda;
+  $("#btn-del").hidden = !r;
+
+  // indirme linki
+  const link = r && safeUrl(r.link);
+  $("#item-dl").replaceChildren(...(link ? [h("a", { class: "btn", href: link, target: "_blank", rel: "noopener noreferrer" }, ico(I.dl), "Videoyu indir")] : []));
+  $("#item-foot").hidden = !link && !formda;
+
+  renderPlan(r);
+  if (r && S.tab === "bilgi" && !S.edit) renderFacts(r);
+  if (thread) renderExtra(r);
+  else $("#item-revplan").replaceChildren();
+  renderRail();
+}
+for (const b of document.querySelectorAll("#item-tabs [data-tab]")) b.addEventListener("click", () => { S.tab = b.dataset.tab; refreshItem(); });
+
+function renderFacts(r) {
+  const st = etkin(r), d = durumOf(st);
+  const fact = (label, val) => h("div", { class: "fact" }, h("span", { text: label }), typeof val === "string" ? h("b", { text: val }) : val);
+  $("#item-view").replaceChildren(...[
+    h("div", { class: "facts" },
+      fact("Durum", h("span", { class: "pill", style: `--c:${cssVar(d.renk)}`, text: d.ad })),
+      fact("Çekim", cekimAdi(r)),
+      fact("Teslim", r.teslim ? fmtGun(r.teslim) : "—"),
+      fact("Dil", r.dil || "Türkçe")),
+    r.not ? [h("p", { class: "sec-title", text: "Not" }), h("div", { class: "note-box", text: r.not })] : null,
+    r.gecmis.length ? [h("p", { class: "sec-title", text: "Süreç" }),
+      h("ol", { class: "timeline" }, [...r.gecmis].reverse().map((g) => h("li", { style: `--c:${cssVar(durumOf(g.durum).renk)}` },
+        h("span", null, durumOf(g.durum).ad, g.oto ? h("small", { text: " · revize gelince otomatik" }) : null), h("time", { datetime: g.tarih, text: fmtGun(g.tarih) }))))] : null,
+  ].flat().filter(Boolean));
+}
+
+// yönetici: Claude'un planı (hocalar görmez; ozel.json'dan gelir)
+const TURLER = [["kesim", "kesim"], ["aci", "açı"], ["ses", "ses"], ["slayt", "slayt / grafik"], ["renk", "renk"], ["cekim", "yeniden çekim"], ["diger", "diğer"]];
+const turAd = (t) => (TURLER.find((x) => x[0] === t) || [t, t])[1];
+function renderPlan(r) {
+  const box = $("#item-plan"), p = r && isAdmin() ? planOf(r.id) : null;
+  if (!p || etkin(r) !== "revize") { box.replaceChildren(); return; }
+  const m = p.maddeler || [];
+  const say = {}; for (const x of m) say[x.tur || "diger"] = (say[x.tur || "diger"] || 0) + 1;
+  const soru = m.filter((x) => x.durum === "soru").length, yapildi = m.filter((x) => x.durum === "yapildi").length;
+  const acts = h("div", { class: "acts" });
+  if (p.onay) {
+    acts.append(h("span", { class: "ok-line", text: `Onaylandı · ${fmtGoreli(p.onay.tarih)}${p.onay.secilen ? ` · ${p.onay.secilen.length} madde` : ""}${yapildi ? ` · ${yapildi}/${m.length} yapıldı` : ""}` }));
+  } else if (m.length) {
+    if (S.secim) {
+      acts.append(
+        h("button", { class: "btn pri", type: "button", text: `Seçilen ${S.secim.size} maddeyi onayla`, disabled: !S.secim.size, onclick: () => onayla(r, [...S.secim].sort((a, b) => a - b)) }),
+        h("button", { class: "btn", type: "button", text: "Vazgeç", onclick: () => { S.secim = null; refreshItem(); } }));
+    } else {
+      acts.append(
+        h("button", { class: "btn pri", type: "button", text: "Onayla, başla", onclick: () => onayla(r, null) }),
+        h("button", { class: "btn", type: "button", text: "Maddeleri seç", onclick: () => { S.secim = new Set(m.map((_, i) => i).filter((i) => m[i].durum !== "soru")); S.tab = "revize"; refreshItem(); } }));
+    }
+  }
+  box.replaceChildren(h("div", { class: "private" },
+    h("div", { class: "ph" }, ico(I.spark), "Claude'un planı", h("span", { class: "lock-tag" }, ico(I.lock, 12), "Yalnız sen")),
+    h("p", { text: p.ozet || `${m.length} madde okundu ve kurgudaki yerlerine eşlendi.${soru ? ` ${soru} madde senin kararın.` : ""}` }),
+    m.length ? h("div", { class: "kinds" }, TURLER.filter(([t]) => say[t]).map(([t, ad]) => h("div", null, h("b", { text: String(say[t]) }), ad))) : null,
+    acts));
+}
+async function onayla(r, secilen) {
+  if (!S.edit) { banner("Onaylamak için önce Düzenle ile düzenleme modunu aç.", "--st-revize"); return; }
+  const now = new Date().toISOString();
+  const n = secilen ? secilen.length : (planOf(r.id).maddeler || []).length;
+  S.secim = null;
+  planMutate(r.id, (p) => { p.onay = { tarih: now, secilen }; p.asama = "onaylandi"; });
+  mutate(() => { r.rev = { asama: "isleniyor", tarih: now, n, bitti: 0 }; }, `${r.egitmen} revize planı onaylandı`);
+  refreshItem();
+}
+function planList(r) {
+  const p = isAdmin() ? planOf(r.id) : null;
+  if (!p || !(p.maddeler || []).length || etkin(r) !== "revize") return [];
+  const out = [];
+  const gruplar = TURLER.map(([t]) => t).concat([...new Set(p.maddeler.map((x) => x.tur || "diger"))].filter((t) => !TURLER.some((x) => x[0] === t)));
+  for (const t of gruplar) {
+    const items = p.maddeler.map((x, i) => [x, i]).filter(([x]) => (x.tur || "diger") === t);
+    if (!items.length) continue;
+    out.push(h("div", { class: "grp", text: turAd(t) }));
+    for (const [x, i] of items) {
+      const sec = S.secim ? S.secim.has(i) : null;
+      const done = sec != null ? sec : x.durum === "yapildi";
+      const ck = h("span", { class: "ck", role: "checkbox", "aria-checked": String(done), title: S.secim ? "Plana dahil et" : "Yapıldı olarak işaretle" }, ico(I.chk2, 12));
+      ck.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (S.secim) { S.secim.has(i) ? S.secim.delete(i) : S.secim.add(i); refreshItem(); return; }
+        if (!S.edit) return;
+        planMutate(r.id, (pp) => { pp.maddeler[i].durum = pp.maddeler[i].durum === "yapildi" ? "plan" : "yapildi"; });
+      });
+      const row = h("div", { class: "it" + (done ? " done" : ""), "data-i": String(i) }, ck,
+        x.tc ? h("span", { class: "tc", text: x.tc }) : h("span"),
+        h("p", { text: x.metin || "" }),
+        h("span", { class: "s" + (x.durum === "soru" ? " ask" : ""), text: x.durum === "yapildi" ? "Yapıldı" : x.durum === "soru" ? "Sana soruldu" : "Planda", title: x.not || null }));
+      row.addEventListener("click", () => { if (Number.isFinite(x.sn)) seek(x.sn); markRail("p" + i); });
+      out.push(row);
+    }
+  }
+  out.push(h("div", { class: "grp", text: "Gelen istekler" }));
+  return out;
+}
 
 $("#item-form").addEventListener("submit", (e) => {
   e.preventDefault();
@@ -477,7 +811,7 @@ $("#item-form").addEventListener("submit", (e) => {
   const sira = parseInt($("#f-sira").value, 10);
   const val = {
     egitmen, tur: $("#f-tur").value, durum: $("#f-durum").value, sira: Number.isFinite(sira) ? sira : null,
-    teslim: $("#f-teslim").value, ad: $("#f-ad").value.trim(), dil: trLower($("#f-dil").value.trim()) === "türkçe" ? "" : $("#f-dil").value.trim(), disk: $("#f-disk").checked, not: $("#f-not").value.trim(),
+    teslim: $("#f-teslim").value, ad: $("#f-ad").value.trim(), dil: trLower($("#f-dil").value.trim()) === "türkçe" ? "" : $("#f-dil").value.trim(), not: $("#f-not").value.trim(),
     link: $("#f-link").value.trim(),
   };
   if (val.link && !safeUrl(val.link)) { $("#f-err").textContent = "İndirme linki http:// ya da https:// ile başlamalı."; return; }
@@ -488,7 +822,8 @@ $("#item-form").addEventListener("submit", (e) => {
   const r = S.current && S.data.cekimler.find((x) => x.id === S.current);
   if (r) {
     mutate(() => {
-      if (r.durum !== val.durum) r.gecmis.push({ durum: val.durum, tarih: now });
+      if (r.durum !== val.durum) { r.gecmis.push({ durum: val.durum, tarih: now }); if (val.durum === "revize") r.rev = { asama: "geldi", tarih: now }; else delete r.rev; }
+      delete r.disk;   // eski "medya başka diskte" alanı artık kullanılmıyor
       Object.assign(r, val, { guncelleme: now });
     }, `${val.egitmen} (${cekimAdi(val)}) güncellendi`);
   } else {
@@ -505,11 +840,12 @@ $("#btn-del-yes").addEventListener("click", () => {
 });
 for (const b of document.querySelectorAll("[data-close]")) b.addEventListener("click", () => b.closest("dialog").close());
 for (const d of document.querySelectorAll("dialog")) d.addEventListener("click", (e) => { if (e.target === d) d.close(); });
+dlg.addEventListener("close", () => { S.secim = null; for (const c of document.querySelectorAll(".card.sel")) c.classList.remove("sel"); });
 
 /* ---------- düzenleme modu ---------- */
 const authDlg = $("#dlg-auth");
 $("#btn-mode").addEventListener("click", () => {
-  if (S.edit) { S.edit = false; syncChip(); render(); return; }
+  if (S.edit) { S.edit = false; syncChip(); render(); if (dlg.open) refreshItem(); return; }
   if (!API) { banner("GitHub deposu ayarlı değil: index.html içindeki TRIGEMY ayarını doldur.", "--danger"); return; }
   if (S.token) { enterEdit(); return; }
   $("#f-token").value = ""; $("#auth-err").textContent = "";
@@ -521,7 +857,7 @@ $("#auth-form").addEventListener("submit", async (e) => {
   if (!tok) return;
   $("#btn-auth").disabled = true; $("#auth-err").textContent = "";
   try {
-    const r = await fetch(`https://api.github.com/repos/${CFG.owner}/${CFG.repo}`, { headers: { Authorization: "Bearer " + tok, Accept: "application/vnd.github+json" } });
+    const r = await fetch(REPO_API, { headers: { Authorization: "Bearer " + tok, Accept: "application/vnd.github+json" } });
     if (!r.ok) throw new Error(r.status === 401 ? "Anahtar geçersiz." : "Bu anahtar depoyu göremiyor.");
     const j = await r.json();
     if (j.permissions && !j.permissions.push) throw new Error("Bu anahtarın depoya yazma izni yok.");
@@ -537,6 +873,7 @@ async function enterEdit() {
   render();
   await load({ quiet: true });          // güncel hali ve sha'yı al
   syncChip("Düzenleme açık", "var(--ok)");
+  if (dlg.open) refreshItem();
 }
 function logout(msg) {
   S.token = null; S.edit = false; store.set(TOKEN_KEY, null);
@@ -547,11 +884,11 @@ function logout(msg) {
 /* ---------- kilit ve erişim anahtarları ---------- */
 function showLock() {
   S.edit = false; syncChip();
-  $("#main").hidden = true; $("#lock").hidden = false; $("#btn-mode").hidden = true; $(".mast-tabs").hidden = true;
+  $("#main").hidden = true; $("#lock").hidden = false; $("#btn-mode").hidden = true; $("#tabs").hidden = true; $("#cmd").hidden = true;
   $("#lock-pass").value = ""; $("#lock-err").textContent = "";
   $("#lock-pass").focus();
 }
-function showMain() { $("#lock").hidden = true; $("#main").hidden = false; $("#btn-mode").hidden = false; $(".mast-tabs").hidden = false; }
+function showMain() { $("#lock").hidden = true; $("#main").hidden = false; $("#btn-mode").hidden = false; $("#tabs").hidden = false; $("#cmd").hidden = false; }
 $("#lock-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const key = $("#lock-pass").value;
@@ -561,16 +898,17 @@ $("#lock-form").addEventListener("submit", async (e) => {
     const u = await unwrapDek(S.lastDoc, key);
     if (!u) throw new Error("yanlış");
     const plain = await decryptDoc(S.lastDoc, u.dek);
-    S.dek = u.dek; S.myKeyId = u.id; S.enc = true;
+    S.dek = u.dek; S.myKeyId = u.id; S.myKeyStr = normKey(key); S.enc = true;
     if ($("#lock-remember").checked) store.set(KEY_KEY, normKey(key));
     setData(plain, S.lastDoc.anahtarlar); S.loaded = true;
     showMain(); banner(""); render();
-    loadRevize().then(render);
+    loadRevize().then(() => { autoRevize(); render(); });
+    loadOzel().then(render);
   } catch { $("#lock-err").textContent = "Anahtar geçersiz."; $("#lock-pass").select(); }
   finally { $("#lock-btn").disabled = false; }
 });
 $("#btn-forget").addEventListener("click", () => {
-  store.set(KEY_KEY, null); S.dek = null; S.data = { cekimler: [] };
+  store.set(KEY_KEY, null); S.dek = null; S.ydek = null; S.ozel = null; S.myKeyStr = null; S.data = { cekimler: [] };
   if (S.lastDoc) showLock();
 });
 
@@ -589,35 +927,43 @@ function renderKeys() {
         S.data.erisim = S.data.erisim.filter((x) => x.id !== k.id);
         S.anahtarlar = S.anahtarlar.filter((x) => x.id !== k.id);
       }, `Erişim anahtarı silindi: ${k.ad}`);
+      if (S.ozelKeys.some((x) => x.id === k.id)) { S.ozelKeys = S.ozelKeys.filter((x) => x.id !== k.id); saveOzel(); }
       renderKeys();
     });
     return h("li", { class: "key-row" },
-      h("div", { class: "key-info" }, h("b", { text: k.ad || "İsimsiz" }), mine ? h("span", { class: "chip", style: "--c:var(--brand)", text: "Bu cihaz" }) : null,
+      h("div", { class: "key-info" }, h("b", { text: k.ad || "İsimsiz" }),
+        k.yonetici ? h("span", { class: "chip", style: "--c:var(--st-revize)", text: "Yönetici" }) : null,
+        mine ? h("span", { class: "chip", text: "Bu cihaz" }) : null,
         h("small", { text: "Oluşturma: " + fmtGun(k.olusturma) })),
       h("div", { class: "key-actions" }, del, yes));
   }));
   $("#key-count").textContent = list.length + " anahtar";
+  $("#keyadmin-row").hidden = !isAdmin();
 }
 $("#btn-keys").addEventListener("click", () => {
-  $("#key-new").hidden = true; $("#f-keyname").value = ""; $("#key-err").textContent = "";
+  $("#key-new").hidden = true; $("#f-keyname").value = ""; $("#f-keyadmin").checked = false; $("#key-err").textContent = "";
   renderKeys(); renderRevSettings(); keysDlg.showModal();
 });
 $("#key-form").addEventListener("submit", async (e) => {
   e.preventDefault();
-  const ad = $("#f-keyname").value.trim();
+  const ad = $("#f-keyname").value.trim(), yon = $("#f-keyadmin").checked && isAdmin();
   if (!ad) { $("#key-err").textContent = "Anahtarın kimin için olduğunu yaz."; return; }
   if (!S.dek) return;
   $("#btn-keygen").disabled = true; $("#key-err").textContent = "";
   try {
     const key = yeniAnahtar(), id = uid();
     const entry = await wrapEntry(id, key, S.dek);
+    if (yon) {
+      S.ozelKeys.push(await wrapEntry(id, key, S.ydek));
+      if (!(await saveOzel())) { S.ozelKeys = S.ozelKeys.filter((x) => x.id !== id); throw new Error("ozel"); }
+    }
     mutate(() => {
       S.anahtarlar.push(entry);
-      (S.data.erisim ||= []).push({ id, ad, olusturma: new Date().toISOString() });
+      (S.data.erisim ||= []).push({ id, ad, olusturma: new Date().toISOString(), ...(yon ? { yonetici: true } : {}) });
     }, `Erişim anahtarı eklendi: ${ad}`);
     $("#key-value").textContent = key;
-    $("#key-for").textContent = ad;
-    $("#key-new").hidden = false; $("#f-keyname").value = "";
+    $("#key-for").textContent = ad + (yon ? " · yönetici" : "");
+    $("#key-new").hidden = false; $("#f-keyname").value = ""; $("#f-keyadmin").checked = false;
     renderKeys();
   } catch { $("#key-err").textContent = "Anahtar üretilemedi."; }
   finally { $("#btn-keygen").disabled = false; }
@@ -662,14 +1008,21 @@ function fmtSure(sn) {
   const s = String(sn % 60).padStart(2, "0"), m = Math.floor(sn / 60) % 60, sa = Math.floor(sn / 3600);
   return sa ? `${sa}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
 }
+const fmtTc = (sn) => { sn = Math.max(0, Math.floor(sn || 0)); return [Math.floor(sn / 3600), Math.floor(sn / 60) % 60, sn % 60].map((x) => String(x).padStart(2, "0")).join(":"); };
 
 function vimeoThumb(r, v) {
-  const dur = h("span", { class: "thumb-dur" });
-  const b = h("button", { class: "thumb", type: "button", "aria-label": `${r.egitmen} videosunu izle`,
-    onclick: (e) => { e.stopPropagation(); openItem(r.id, { play: true }); } }, h("span", { class: "thumb-play", "aria-hidden": "true" }), dur);
+  const dur = h("span", { class: "du" }), marks = h("span", { class: "marks", hidden: true });
+  const b = h("button", { class: "thumb", type: "button", style: `--g:${THUMB[hashOf(r.egitmen) % THUMB.length]}`, "aria-label": `${r.egitmen} videosunu izle`,
+    onclick: (e) => { e.stopPropagation(); openItem(r.id, { play: true }); } }, h("span", { class: "pl", "aria-hidden": "true" }, ico(I.play, 12)), marks, dur);
   vimeoInfo(v).then((d) => {
     const t = thumbUrl(d); if (t) b.style.backgroundImage = `url("${t}")`;
-    if (d && d.duration) dur.textContent = fmtSure(d.duration);
+    if (d && d.duration) {
+      dur.textContent = fmtSure(d.duration);
+      // önbellekteki revize zamanları (panel açılınca okunanlar) kart üstünde nokta olur
+      const sn = (etkin(r) === "revize" ? yeniRevler(r) : []).map((x) => NOTLAR.get(x.path)).filter((k) => k && Number.isFinite(k.sn)).map((k) => k.sn);
+      const p = isAdmin() && etkin(r) === "revize" && planOf(r.id); if (p) for (const x of p.maddeler || []) if (Number.isFinite(x.sn)) sn.push(x.sn);
+      if (sn.length) { marks.hidden = false; marks.replaceChildren(...sn.map((s) => h("i", { style: `left:${Math.min(100, (s / d.duration) * 100)}%` }))); }
+    }
   });
   return b;
 }
@@ -689,43 +1042,67 @@ function vimeoPaste(r) {
   return inp;
 }
 
-// pencerede oynatıcı; zaman kodu için Vimeo'nun oynatıcı kütüphanesi yalnız gerektiğinde yüklenir
-const P = { el: null, embed: "", player: null, t: 0, sdk: null };
+// panelde oynatıcı; zaman kodu için Vimeo'nun oynatıcı kütüphanesi yalnız gerektiğinde yüklenir
+const P = { el: null, embed: "", player: null, t: 0, dur: 0, sdk: null };
 function loadSdk() {
   if (window.Vimeo && window.Vimeo.Player) return Promise.resolve();
   return (P.sdk ||= new Promise((res, rej) => document.head.append(h("script", { src: VIMEO_SDK, onload: res, onerror: () => { P.sdk = null; rej(); } }))));
 }
 function showMedia(v, opts = {}) {
-  dlg.classList.toggle("wide", !!v);
   if (!v) { stopMedia(); return; }
   if (P.embed === v.embed && P.el && P.el.isConnected) return;   // aynı video zaten açık
   stopMedia();
   const ifr = h("iframe", { src: v.embed + (opts.play ? "&autoplay=1" : ""), title: "Vimeo videosu", allowfullscreen: true,
     allow: "autoplay; fullscreen; picture-in-picture; clipboard-write", referrerpolicy: "strict-origin-when-cross-origin" });
-  const title = h("span", { class: "media-title", text: "Vimeo" });
   const box = $("#item-media");
   box.replaceChildren(h("div", { class: "player" }, ifr),
-    h("div", { class: "media-meta" }, title, h("a", { href: v.url, target: "_blank", rel: "noopener noreferrer", text: "Vimeo'da aç ↗" })));
+    h("div", { class: "media-bar" }, h("span", { id: "rail-t", text: "0:00" }), h("div", { class: "rail", id: "rail" }, h("span", { class: "pos" })), h("span", { id: "rail-d", text: "" }),
+      h("a", { href: v.url, target: "_blank", rel: "noopener noreferrer", title: "Vimeo'da aç" }, "Vimeo ↗")));
   box.hidden = false;
-  P.el = ifr; P.embed = v.embed; P.t = 0;
-  vimeoInfo(v).then((d) => { if (d && d.title && P.el === ifr) title.textContent = d.title + (d.duration ? " · " + fmtSure(d.duration) : ""); });
+  P.el = ifr; P.embed = v.embed; P.t = 0; P.dur = 0;
+  vimeoInfo(v).then((d) => { if (d && d.duration && P.el === ifr) { P.dur = d.duration; $("#rail-d").textContent = fmtSure(d.duration); renderRail(); } });
   loadSdk().then(() => {
     if (P.el !== ifr) return;
     const p = new window.Vimeo.Player(ifr);
     P.player = p;
-    p.on("timeupdate", (d) => { P.t = d.seconds; stampLabel(); });
-    p.on("seeked", (d) => { P.t = d.seconds; stampLabel(); });
+    p.getDuration().then((d) => { if (d && P.el === ifr) { P.dur = d; $("#rail-d").textContent = fmtSure(d); renderRail(); } }).catch(() => {});
+    p.on("timeupdate", (d) => { P.t = d.seconds; tick(); });
+    p.on("seeked", (d) => { P.t = d.seconds; tick(); });
   }).catch(() => {});
+}
+function tick() {
+  stampLabel();
+  const t = $("#rail-t"), pos = $("#rail .pos");
+  if (t) t.textContent = fmtSure(P.t);
+  if (pos && P.dur) pos.style.width = Math.min(100, (P.t / P.dur) * 100) + "%";
 }
 function stopMedia() {
   if (P.player) { try { P.player.destroy(); } catch {} }
-  P.el = null; P.embed = ""; P.player = null; P.t = 0;
+  P.el = null; P.embed = ""; P.player = null; P.t = 0; P.dur = 0;
   const box = $("#item-media"); box.replaceChildren(); box.hidden = true;
 }
 function seek(sn) {
   if (!P.player) return;
-  $("#item-media").scrollIntoView({ block: "nearest", behavior: "smooth" });
   P.player.setCurrentTime(sn).then(() => P.player.play()).catch(() => {});
+}
+// oynatıcının altındaki çubuk: revize / plan maddeleri nokta olarak, tıklanınca o ana gider
+function renderRail() {
+  const rail = $("#rail"), r = S.current && S.data.cekimler.find((x) => x.id === S.current);
+  if (!rail || !r || !P.dur) return;
+  const pts = [];
+  const p = isAdmin() && etkin(r) === "revize" ? planOf(r.id) : null;
+  if (p) (p.maddeler || []).forEach((x, i) => { if (Number.isFinite(x.sn)) pts.push({ key: "p" + i, sn: x.sn, cls: x.durum === "yapildi" ? "done" : "", t: (x.tc || fmtTc(x.sn)) + " · " + (x.metin || "") }); });
+  for (const it of revOf(r.id).notlar) {
+    const k = NOTLAR.get(it.path);
+    if (k && Number.isFinite(k.sn) && (it.tur === "revize" ? !p && S.tab !== "yorum" : S.tab === "yorum")) pts.push({ key: it.path, sn: k.sn, cls: it.tur === "yorum" ? "yor" : "", t: fmtSure(k.sn) + " · " + (k.metin || "").slice(0, 80) });
+  }
+  rail.replaceChildren(h("span", { class: "pos", style: `width:${Math.min(100, (P.t / P.dur) * 100)}%` }),
+    ...pts.map((x) => h("button", { type: "button", class: x.cls, "data-k": x.key, title: x.t, "aria-label": x.t, style: `left:${Math.min(100, (x.sn / P.dur) * 100)}%`,
+      onclick: () => { seek(x.sn); markRail(x.key); } })));
+}
+function markRail(key) {
+  for (const b of document.querySelectorAll("#rail button")) b.classList.toggle("on", b.dataset.k === key);
+  for (const e of document.querySelectorAll("#item-revplan .it")) e.classList.toggle("on", "p" + e.dataset.i === key);
 }
 function stampLabel() {
   const t = $("#c-stamp-t"), c = $("#c-stamp");
@@ -748,6 +1125,8 @@ function vimeoHint() {
   if (dlg.open) showMedia(v);
 }
 $("#f-vimeo").addEventListener("input", vimeoHint);
+// pencere hangi yoldan kapanırsa kapansın video da durur; close olayı arka plandaki sekmede gecikebiliyor
+new MutationObserver(() => { if (!dlg.open) stopMedia(); }).observe(dlg, { attributes: true, attributeFilter: ["open"] });
 
 /* ---------- yorumlar ve revizeler ----------
    Hocalar ve ekip ayrı bir depoya (ör. Trigemy-revize) yazar; yalnız o depoya yazabilen anahtar şifreli veride durur.
@@ -760,7 +1139,7 @@ $("#f-vimeo").addEventListener("input", vimeoHint);
 const REV = () => (S.data.yukleme && S.data.yukleme.token && S.data.yukleme.repo ? S.data.yukleme : null);
 const safeUrl = (u) => (/^https?:\/\/[^\s]+$/i.test(u || "") ? u : "");
 const MAX_DOSYA = 15 * 1024 * 1024;
-const revApi = (y, path = "") => `https://api.github.com/repos/${y.repo}/contents/${path}`;
+const revApi = (y, path = "") => `${CFG.api}/repos/${y.repo}/contents/${path}`;
 const revHeaders = (y, raw) => ({ Authorization: "Bearer " + y.token, Accept: raw ? "application/vnd.github.raw" : "application/vnd.github+json" });
 const NOTLAR = new Map();    // yol → çözülmüş kayıt (kayıt dosyaları değişmez, önbellek güvenli)
 const SHA = new Map();       // yol → dosya sha'sı (silmek için)
@@ -811,7 +1190,7 @@ async function loadRevize() {
   const y = REV();
   if (!y || !S.dek) { S.revize = {}; return; }
   try {
-    const r = await fetch(`https://api.github.com/repos/${y.repo}/git/trees/${y.branch || "main"}?recursive=1`, { headers: revHeaders(y), cache: "no-store" });
+    const r = await fetch(`${CFG.api}/repos/${y.repo}/git/trees/${y.branch || "main"}?recursive=1`, { headers: revHeaders(y), cache: "no-store" });
     if (!r.ok && r.status !== 404 && r.status !== 409) return;   // 404/409: depo boş
     const tree = r.ok ? (await r.json()).tree || [] : [];
     const m = {}, seen = new Set();
@@ -822,7 +1201,7 @@ async function loadRevize() {
       if (SILINEN.has(t.path)) continue;
       let mm;
       if ((mm = t.path.match(/^([^/]+)\/(yorum|revize)\/(\d+)-[a-z0-9]+\.enc$/))) of(mm[1]).notlar.push({ path: t.path, tur: mm[2], ts: +mm[3] });
-      else if ((mm = t.path.match(/^([^/]+)\/(\d+)-[a-z0-9]+\.enc$/))) of(mm[1]).dosyalar.push({ path: t.path, ts: +mm[2] });
+      else if ((mm = t.path.match(/^([^/]+)\/(\d+)-[a-z0-9]+\.enc$/))) of(mm[1]).dosyalar.push({ path: t.path, ts: +mm[2], eski: true });
     }
     const now = Date.now();
     for (const [path, b] of BEKLEYEN) {
@@ -831,18 +1210,8 @@ async function loadRevize() {
     }
     for (const [path, t] of SILINEN) if (!seen.has(path) || now - t > 300000) SILINEN.delete(path);
     S.revize = m;
-    if (dlg.open) renderThread();
+    if (dlg.open) refreshItem();
   } catch { /* liste alınamadı; sonraki tazelemede tekrar denenir */ }
-}
-function revizeChip(r) {
-  const e = revOf(r.id);
-  const revler = [...e.dosyalar, ...e.notlar.filter((n) => n.tur === "revize")], yorumlar = e.notlar.filter((n) => n.tur === "yorum");
-  if (!revler.length && !yorumlar.length) return null;
-  const son = Date.parse(r.guncelleme || 0) || 0;
-  const yeniRev = revler.some((x) => x.ts > son), yeniYor = yorumlar.some((x) => x.ts > son);
-  return h("div", { class: "chips" },
-    revler.length ? h("span", { class: "chip", style: `--c:var(${yeniRev ? "--st-revize" : "--brand"})`, text: (yeniRev ? "Yeni revize · " : "") + revler.length + " revize" }) : null,
-    yorumlar.length ? h("span", { class: "chip", style: `--c:var(${yeniYor ? "--st-montajda" : "--muted"})`, text: (yeniYor ? "Yeni yorum · " : "") + yorumlar.length + " yorum" }) : null);
 }
 
 async function dosyaYukle(cid, file) {
@@ -873,6 +1242,7 @@ async function notYaz(cid, tur, metin, sn, file) {
   const n = { path, tur, ts };
   (S.revize[cid] ||= { dosyalar: [], notlar: [] }).notlar.push(n);
   BEKLEYEN.set(path, { cid, kayit: n, eklendi: Date.now() });
+  if (tur === "revize") autoRevize();
 }
 async function notOku(path) {
   if (!NOTLAR.has(path)) NOTLAR.set(path, JSON.parse(new TextDecoder().decode(await cozBayt(await revGet(path)))));
@@ -885,74 +1255,51 @@ async function notSil(cid, path, kayit) {
   BEKLEYEN.delete(path); SILINEN.set(path, Date.now());
 }
 
-const AVATAR = ["--st-montajda", "--st-montajlandi", "--st-yayinda", "--st-revize", "--brand"];
-const avatarRenk = (s) => { let x = 0; for (const c of s || "") x = (x * 31 + c.charCodeAt(0)) >>> 0; return AVATAR[x % AVATAR.length]; };
-const basHarf = (s) => (s || "?").trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toLocaleUpperCase("tr");
 const KABUL = ".pdf,.doc,.docx,.txt,.rtf,.odt,.pages,.md,.png,.jpg,.jpeg,.webp,application/pdf,text/plain,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*";
 
-function renderExtra(r, opts = {}) {
-  const box = $("#item-extra");
-  if (!r) { box.replaceChildren(); box.hidden = true; return; }
-  const link = safeUrl(r.link), video = !!vimeoParse(r.vimeo);
-  const acik = REV() && S.dek;
-  const parts = [];
-  if (link) parts.push(h("a", { class: "btn dl", href: link, target: "_blank", rel: "noopener noreferrer" }, h("svg", { viewBox: "0 0 20 20", "aria-hidden": "true" }), "Videoyu indir"));
-  if (acik) {
-    parts.push(h("p", { class: "sec-title", id: "thread-title", text: "Yorumlar ve revizeler" }), h("ul", { class: "thread", id: "thread" }));
-    parts.push(composer(r, video || VIDEOLU.has(r.durum), video, opts));
-  } else if (S.edit || video || VIDEOLU.has(r.durum)) {
+// Revizeler / Yorumlar sekmesi: kayıt listesi + yazma kutusu
+function renderExtra(r) {
+  const tur = S.tab === "yorum" ? "yorum" : "revize";
+  $("#item-revplan").replaceChildren(...(tur === "revize" ? planList(r) : []));
+  const box = $("#item-composer");
+  const acik = REV() && S.dek, video = !!vimeoParse(r.vimeo);
+  const yazilir = tur === "yorum" || VIDEOLU.has(etkin(r)) || video;
+  if (acik && yazilir) {
+    if (!box.firstChild || box.firstChild.dataset.tur !== tur || box.firstChild.dataset.cid !== r.id) box.replaceChildren(composer(r, tur, video));
+  } else if (!acik && S.edit && yazilir) {
     // revize deposu ve yükleme anahtarı girilmemiş: kimse revize yazamaz, ne yapılacağı söylenir
-    parts.push(h("p", { class: "sec-title", text: "Revize ekle" }), h("div", { class: "note-box", id: "rev-kapali" },
-      S.edit && S.enc ? ["Revize ve yorum için kurulum gerekli: ",
-        h("button", { class: "linkish", type: "button", text: "Erişim anahtarları", onclick: () => { dlg.close(); $("#btn-keys").click(); } }),
-        " → en alttaki Revize dosyası yükleme bölümüne revize deposunu ve yükleme anahtarını gir."]
-      : "Revize ekleme henüz açılmadı. Pano yöneticisi kurulumu tamamlayınca revizeni buradan yazabileceksin."));
-  }
-  box.replaceChildren(...parts);
-  const svg = box.querySelector(".dl svg");
-  if (svg) svg.innerHTML = '<path d="M10 3v10m0 0-4-4m4 4 4-4M4 16h12"/>';
-  box.hidden = !parts.length;
+    box.replaceChildren(h("div", { class: "note-box", id: "rev-kapali" }, "Revize ve yorum için kurulum gerekli: ",
+      h("button", { class: "linkish", type: "button", text: "Erişim anahtarları", onclick: () => { dlg.close(); $("#btn-keys").click(); } }),
+      " → Revize dosyası yükleme bölümü."));
+  } else box.replaceChildren();
   renderThread();
 }
 
-function composer(r, revizeOlur, video, opts) {
-  let tur = "yorum", file = null;
-  const ta = h("textarea", { id: "c-metin", rows: "3", "aria-label": "Yorum" });
-  const kinds = revizeOlur ? h("div", { class: "seg", role: "group", "aria-label": "Kayıt türü" },
-    h("button", { type: "button", "data-kind": "yorum", text: "Yorum" }),
-    h("button", { type: "button", "data-kind": "revize", text: "Revize isteği" })) : null;
+function composer(r, tur, video) {
+  let file = null;
+  const ta = h("textarea", { id: "c-metin", rows: "3", "aria-label": tur === "revize" ? "Revize isteği" : "Yorum",
+    placeholder: tur === "revize" ? "Neyin değişmesi gerekiyor? Ör. 12:40'taki slayt yanlış, bir sonrakiyle değişmeli." : "Yorumunu yaz…" });
   const stamp = video ? h("label", { class: "check stamp-check" }, h("input", { type: "checkbox", id: "c-stamp" }), h("span", { id: "c-stamp-t", text: "0:00 anına bağla" })) : null;
   const fileIn = h("input", { type: "file", class: "sr", id: "c-file", accept: KABUL });
-  const fileBtn = h("label", { class: "btn small file-btn" }, fileIn, "Dosya ekle");
+  const fileBtn = tur === "revize" ? h("label", { class: "btn small file-btn" }, fileIn, "Dosya ekle") : null;
   const fileChip = h("span", { class: "file-chip", hidden: true });
-  const send = h("button", { class: "btn primary small", type: "button", text: "Gönder" });
+  const send = h("button", { class: "btn pri small", type: "button", text: tur === "revize" ? "Revizeyi gönder" : "Gönder" });
   const status = h("p", { class: "form-err", role: "status" });
-  const box = h("div", { class: "composer" },
-    h("div", { class: "composer-row" }, kinds, h("span", { class: "as-who", text: benimAdim() + " olarak yazıyorsun" })),
+  const box = h("div", { class: "composer", "data-tur": tur, "data-cid": r.id },
     ta,
-    h("div", { class: "composer-row" }, stamp, fileBtn, fileChip, h("span", { class: "spacer" }), send),
+    h("div", { class: "composer-row" }, stamp, fileBtn, fileChip, h("span", { class: "sp" }), h("span", { class: "as-who", text: benimAdim() }), send),
     status);
-
-  function setTur(t) {
-    tur = t; box.classList.toggle("is-revize", t === "revize");
-    if (kinds) for (const b of kinds.children) b.setAttribute("aria-pressed", String(b.dataset.kind === t));
-    ta.placeholder = t === "revize" ? "Neyin değişmesi gerekiyor? Ör. bu kısımdaki slayt yanlış, bir sonrakiyle değişmeli." : "Yorumunu yaz…";
-    ta.setAttribute("aria-label", t === "revize" ? "Revize isteği" : "Yorum");
-    fileBtn.hidden = t !== "revize";
-    if (t !== "revize") setFile(null);
-  }
   function setFile(f) {
     if (f && f.size > MAX_DOSYA) { status.style.color = ""; status.textContent = "Dosya 15 MB'tan büyük olamaz."; return; }
     file = f || null; fileIn.value = "";
     fileChip.hidden = !file;
     fileChip.replaceChildren(...(file ? [h("span", { text: file.name }), h("button", { type: "button", class: "linkish", "aria-label": "Dosyayı çıkar", text: "×", onclick: () => setFile(null) })] : []));
   }
-  if (kinds) for (const b of kinds.children) b.addEventListener("click", () => setTur(b.dataset.kind));
   fileIn.addEventListener("change", () => setFile(fileIn.files[0]));
-  if (revizeOlur) {
+  if (tur === "revize") {
     box.addEventListener("dragover", (e) => { e.preventDefault(); box.classList.add("over"); });
     box.addEventListener("dragleave", (e) => { if (!box.contains(e.relatedTarget)) box.classList.remove("over"); });
-    box.addEventListener("drop", (e) => { e.preventDefault(); box.classList.remove("over"); if (e.dataTransfer.files[0]) { setTur("revize"); setFile(e.dataTransfer.files[0]); } });
+    box.addEventListener("drop", (e) => { e.preventDefault(); box.classList.remove("over"); if (e.dataTransfer.files[0]) setFile(e.dataTransfer.files[0]); });
   }
   if (stamp) stamp.querySelector("input").addEventListener("change", (e) => { e.target.dataset.elle = "1"; });
   ta.addEventListener("focus", () => { if (P.player) P.player.pause().catch(() => {}); });   // yazarken video dursun, an kaymasın
@@ -968,23 +1315,28 @@ function composer(r, revizeOlur, video, opts) {
       await notYaz(r.id, tur, metin, sn, file);
       ta.value = ""; setFile(null);
       status.style.color = "var(--ok)"; status.textContent = tur === "revize" ? "Revize isteğin iletildi." : "Yorumun eklendi.";
-      renderThread(); render();
+      render(); refreshItem();
     } catch {
       status.style.color = ""; status.textContent = "Gönderilemedi. İnternet bağlantını kontrol edip tekrar dene.";
     } finally { send.disabled = false; }
   });
-  setTur(opts.revize && revizeOlur ? "revize" : "yorum");
-  stampLabel();
+  setTimeout(stampLabel, 0);
   return box;
+}
+function refreshTabsCount(r) {
+  $("#tab-rev-n").textContent = revlerOf(r).length ? String(revlerOf(r).length) : "";
+  $("#tab-yor-n").textContent = yorumlarOf(r).length ? String(yorumlarOf(r).length) : "";
 }
 
 function renderThread() {
   const ul = $("#thread"), r = S.current && S.data.cekimler.find((x) => x.id === S.current);
   if (!ul || !r) return;
-  const e = revOf(r.id);
-  const items = [...e.notlar, ...e.dosyalar.map((f) => ({ ...f, eski: true }))].sort((a, b) => a.ts - b.ts);
-  $("#thread-title").textContent = "Yorumlar ve revizeler" + (items.length ? " · " + items.length : "");
-  if (!items.length) { ul.replaceChildren(h("li", { class: "thread-empty", text: REV() ? "Henüz yorum yok. Videoyu izleyip ilk yorumu sen yaz." : "Henüz yorum yok." })); return; }
+  const tur = S.tab === "yorum" ? "yorum" : "revize";
+  const items = (tur === "yorum" ? yorumlarOf(r) : revlerOf(r)).slice().sort((a, b) => b.ts - a.ts);
+  if (!items.length) {
+    ul.replaceChildren(h("li", { class: "thread-empty", text: tur === "yorum" ? "Henüz yorum yok." : VIDEOLU.has(etkin(r)) ? "Henüz revize isteği yok." : "Montaj bitince revize istekleri burada görünecek." }));
+    return;
+  }
   ul.replaceChildren(...items.map((it) => notEl(r, it)));
 }
 function notEl(r, it) {
@@ -994,7 +1346,7 @@ function notEl(r, it) {
   if (k) fillNote(li, r, it, k);
   else {
     li.append(h("div", { class: "skel line" }));
-    notOku(it.path).then((k2) => { li.replaceChildren(); fillNote(li, r, it, k2); })
+    notOku(it.path).then((k2) => { li.replaceChildren(); fillNote(li, r, it, k2); renderRail(); })
       .catch(() => li.replaceChildren(h("span", { class: "muted", text: "Bu kayıt okunamadı." })));
   }
   return li;
@@ -1003,23 +1355,22 @@ function fillNote(li, r, it, k) {
   const ad = k.yazan || (it.eski ? "Yüklenen dosya" : "İsimsiz");
   const silebilir = !it.eski && (S.edit || (k.yazanId && k.yazanId === S.myKeyId));
   const head = h("div", { class: "note-head" }, h("b", { text: ad }),
-    k.tur === "revize" ? h("span", { class: "chip", style: "--c:var(--st-revize)", text: "Revize" }) : null,
     h("time", { datetime: k.tarih, title: fmtSaat(Date.parse(k.tarih) || it.ts), text: fmtGoreli(k.tarih) }));
   if (silebilir) {
     const del = h("button", { class: "linkish note-del", type: "button", text: "Sil" });
     del.addEventListener("click", async () => {
       if (!del.dataset.onay) { del.dataset.onay = "1"; del.textContent = "Silinsin mi? Evet"; return; }
       del.disabled = true;
-      try { await notSil(r.id, it.path, k); renderThread(); render(); }
+      try { await notSil(r.id, it.path, k); render(); refreshItem(); }
       catch { del.disabled = false; del.textContent = "Silinemedi"; }
     });
     head.append(del);
   }
   const body = h("div", { class: "note-body" }, head,
-    Number.isFinite(k.sn) ? h("button", { class: "stamp", type: "button", title: "Videoda bu ana git", text: "▶ " + fmtSure(k.sn), onclick: () => seek(k.sn) }) : null,
+    Number.isFinite(k.sn) ? h("button", { class: "tc", type: "button", title: "Videoda bu ana git", text: fmtTc(k.sn), onclick: () => { seek(k.sn); markRail(it.path); } }) : null,
     k.metin ? h("div", { class: "note-text", text: k.metin }) : null,
     k.dosya ? fileRow(k.dosya, it.eski) : null);
-  li.append(h("span", { class: "avatar", style: `--c:var(${avatarRenk(ad)})`, "aria-hidden": "true", text: it.eski ? "↥" : basHarf(ad) }), body);
+  li.append(it.eski ? h("span", { class: "av", style: avStyle("dosya"), "aria-hidden": "true", text: "↥" }) : av(ad), body);
 }
 function fileRow(d, eski) {
   const name = h("span", { text: d.ad + (d.boyut ? ` · ${Math.max(1, Math.round(d.boyut / 1024))} KB` : "") });
@@ -1043,7 +1394,7 @@ $("#btn-rev-save").addEventListener("click", async () => {
   const tok = token || REV().token;
   $("#btn-rev-save").disabled = true;
   try {
-    const r = await fetch(`https://api.github.com/repos/${repo}`, { headers: { Authorization: "Bearer " + tok, Accept: "application/vnd.github+json" } });
+    const r = await fetch(`${CFG.api}/repos/${repo}`, { headers: { Authorization: "Bearer " + tok, Accept: "application/vnd.github+json" } });
     if (!r.ok) throw new Error("Bu anahtar depoyu göremiyor.");
     const j = await r.json();
     if (j.permissions && !j.permissions.push) throw new Error("Bu anahtarın depoya yazma izni yok.");
@@ -1060,7 +1411,7 @@ function renderRevSettings() {
   $("#f-rev-repo").value = y ? y.repo : `${CFG.owner}/${CFG.repo}-revize`;
   $("#f-rev-token").placeholder = y ? "Ayarlı (değiştirmek için yenisini gir)" : "github_pat_…";
   $("#rev-msg").style.color = y ? "var(--ok)" : "";
-  $("#rev-msg").textContent = y ? `Açık: hocalar revize dosyalarını ${y.repo} deposuna yükleyebilir.` : "Henüz ayarlanmadı: hocalar dosya yükleyemez.";
+  $("#rev-msg").textContent = y ? `Açık: revizeler ${y.repo} deposuna yazılıyor.` : "Henüz ayarlanmadı: hocalar revize yazamaz.";
 }
 
 /* ---------- araç çubuğu ---------- */
@@ -1078,11 +1429,21 @@ for (const b of document.querySelectorAll("[data-tur]")) b.addEventListener("cli
 });
 let qt; $("#q").addEventListener("input", (e) => { clearTimeout(qt); qt = setTimeout(() => { S.q = trLower(e.target.value.trim()); render(); }, 120); });
 $("#btn-add").addEventListener("click", () => openItem(null));
-addEventListener("beforeunload", (e) => { if (S.dirty || S.saving) { e.preventDefault(); e.returnValue = ""; } });
+$("#btn-theme").addEventListener("click", () => {
+  const root = document.documentElement;
+  const koyu = root.dataset.theme ? root.dataset.theme === "dark" : !matchMedia("(prefers-color-scheme: light)").matches;
+  root.dataset.theme = koyu ? "light" : "dark";
+  store.set("trigemy_tema", root.dataset.theme);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName) && !document.querySelector("dialog[open]")) { e.preventDefault(); $("#q").focus(); }
+});
+addEventListener("beforeunload", (e) => { if (S.dirty || S.saving || S.ozelDirty) { e.preventDefault(); e.returnValue = ""; } });
 
 // arada bir tazele; düzenleyen kişi de ekibin değişikliklerini görsün (kaydedilmemiş değişiklik ya da açık pencere yokken)
 const tazelenir = () => !document.hidden && S.loaded && $("#lock").hidden && !S.dirty && !S.saving && !document.querySelector("dialog[open]");
 setInterval(() => { if (tazelenir()) load({ quiet: true }); }, 180000);
+setInterval(renderLive, 60000);
 document.addEventListener("visibilitychange", () => { if (tazelenir()) load({ quiet: true }); });
 
 showMain();
