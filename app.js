@@ -22,6 +22,29 @@ const ASAMALAR = [
   { id: "hazir",     ad: "Hazır",     kart: "Hazır" },
 ];
 const asamaIdx = (id) => Math.max(0, ASAMALAR.findIndex((a) => a.id === id));
+// canlı iş adımı (r.is): video üzerinde çalışılırken herkese "şu an ne yapılıyor" gösterilir.
+// Claude pano.mjs ile günceller; 8 saattir güncellenmeyen adım bayat sayılıp gösterilmez.
+const ISLER = [
+  { id: "hazirlik", ad: "Hazırlanıyor" },
+  { id: "kurgu",    ad: "Kurgu yapılıyor" },
+  { id: "revize",   ad: "Revizeler işleniyor" },
+  { id: "renk",     ad: "Renk ayarı yapılıyor" },
+  { id: "ses",      ad: "Ses düzenleniyor" },
+  { id: "render",   ad: "Renderlanıyor" },
+  { id: "yukleme",  ad: "Vimeo'ya yükleniyor" },
+  { id: "kontrol",  ad: "Son kontrol yapılıyor" },
+];
+const IS_OMUR = 8 * 3600e3;
+function isOf(r) {
+  const x = r && r.is;
+  if (!x || !x.adim) return null;
+  const ts = Date.parse(x.tarih) || 0;
+  if (Date.now() - ts > IS_OMUR) return null;
+  const d = ISLER.find((a) => a.id === x.adim);
+  const yuzde = Number.isFinite(x.yuzde) ? Math.max(0, Math.min(100, Math.round(x.yuzde))) : null;
+  return { adim: x.adim, ad: d ? d.ad : String(x.adim), yuzde, ts, tarih: x.tarih };
+}
+const isMetni = (w) => w.ad + (w.yuzde != null ? ` · %${w.yuzde}` : "");
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
@@ -477,6 +500,7 @@ function render() {
     onclick: () => { S.durumF = S.durumF === d.id ? "" : d.id; render(); },
   }, h("i"), d.ad, h("b", { text: String(sayi[d.id]) }))));
   renderStats(all);
+  renderNow(all);
   renderAlerts(all);
 
   $("#foot-upd").textContent = S.data.guncelleme ? "Son güncelleme: " + fmtGun(S.data.guncelleme) : "";
@@ -522,6 +546,23 @@ function renderStats(all) {
       teslim ? `${teslim.egitmen} · ${fmtKisa(teslim.teslim)}` : "Planlı teslim yok", kalan == null ? null : kalan === 0 ? "bugün" : Math.abs(kalan) + "g"),
     stat("--st-montajlandi", I.chk, "Son 7 günde biten", bitenler.length ? bitenler.map((r) => r.egitmen).join(", ") : "Bu hafta biten yok", bitenler.length),
   );
+}
+// herkese: şu an üzerinde çalışılan videolar
+function renderNow(all) {
+  const box = $("#now");
+  const list = all.map((r) => ({ r, w: isOf(r) })).filter((x) => x.w).sort((a, b) => b.w.ts - a.w.ts);
+  box.replaceChildren(...list.map(({ r, w }) => {
+    const ai = ISLER.findIndex((a) => a.id === w.adim);
+    return h("button", { class: "now-row", type: "button", onclick: () => openItem(r.id) },
+      h("span", { class: "now-dot" }),
+      av(r.egitmen, "md"),
+      h("div", { class: "txt" }, h("b", { text: isMetni(w) }), h("p", { text: `${r.egitmen} · ${cekimAdi(r)}` })),
+      h("span", { class: "sp" }),
+      ai >= 0 ? h("div", { class: "now-steps", "aria-hidden": "true" }, ISLER.map((s, i) => h("i", { class: i < ai ? "on" : i === ai ? "now" : "", title: s.ad }))) : null,
+      h("small", { class: "when", text: fmtGoreli(w.tarih) }),
+      w.yuzde != null ? h("span", { class: "now-bar", style: `--p:${w.yuzde}%` }) : null);
+  }));
+  box.hidden = !list.length;
 }
 // pano sahibine: revize gelen, henüz işlenmeye başlamamış çekimler
 function renderAlerts(all) {
@@ -572,11 +613,12 @@ function card(r, i) {
   const revN = revlerOf(r).length, yorN = yorumlarOf(r).length;
   const acik = r.durum === "bekliyor" || r.durum === "montajda";
   const gec = r.teslim && acik && new Date(r.teslim + "T23:59") < new Date();
-  const c = h("article", { class: "card" + (isAdmin() && sicak(r) ? " hot" : "") + (S.current === r.id && dlg.open ? " sel" : ""), tabindex: "0", draggable: S.edit ? "true" : null,
+  const w = isOf(r);
+  const c = h("article", { class: "card" + (isAdmin() && sicak(r) ? " hot" : "") + (w ? " working" : "") + (S.current === r.id && dlg.open ? " sel" : ""), tabindex: "0", draggable: S.edit ? "true" : null,
     "data-id": r.id, style: `--d:${Math.min(i, 14) * 30}ms`, "aria-label": `${r.egitmen}, ${cekimAdi(r)}, ${durumOf(st).ad}` },
     v ? vimeoThumb(r, v) : S.edit && VIDEOLU.has(st) ? vimeoPaste(r) : null,
     h("div", { class: "who" }, av(r.egitmen), h("div", null, h("b", { text: r.egitmen || "İsimsiz" }), h("small", { text: cekimAdi(r) })), r.sira ? h("span", { class: "no", text: "#" + r.sira }) : null),
-    st === "revize" ? flowEl(r) : null,
+    st === "revize" ? flowEl(r) : w ? nowLine(w) : null,
     r.not && S.edit ? h("div", { class: "card-note", text: r.not }) : null,
     h("div", { class: "meta" },
       yabanci(r) ? h("span", { class: "tag lang", text: r.dil }) : null,
@@ -599,9 +641,15 @@ function flowEl(r) {
   let sag = n ? `${n} istek` : "";
   if (plan && plan.maddeler && plan.maddeler.length) sag = `${plan.maddeler.length} madde`;
   if (a === "isleniyor" && r.rev && r.rev.n) sag = `${r.rev.bitti || 0} / ${r.rev.n}`;
-  return h("div", { class: "flow" },
-    h("div", { class: "row" }, ASAMALAR.map((s, i) => h("i", { class: i < ai ? "on" : i === ai ? (a === "hazir" ? "on" : "now") : "" }))),
-    h("p", null, (isAdmin() && as.yon) || as.kart, h("span", { text: sag })));
+  // işlenirken canlı adım (Renderlanıyor, Vimeo'ya yükleniyor…) aşama adının yerine geçer
+  const w = (a === "isleniyor" || a === "hazir") ? isOf(r) : null;
+  return h("div", { class: "flow" + (w ? " canli" : "") },
+    h("div", { class: "row" }, ASAMALAR.map((s, i) => h("i", { class: i < ai ? "on" : i === ai ? (a === "hazir" && !w ? "on" : "now") : "" }))),
+    h("p", null, w ? h("em", null, h("i"), isMetni(w)) : (isAdmin() && as.yon) || as.kart, h("span", { text: sag })));
+}
+function nowLine(w) {
+  return h("div", { class: "now-line" + (w.yuzde != null ? " pct" : ""), style: w.yuzde != null ? `--p:${w.yuzde}%` : null },
+    h("i"), h("span", { text: isMetni(w) }), h("small", { text: fmtGoreli(w.tarih) }));
 }
 
 function renderTable(rows) {
@@ -609,11 +657,11 @@ function renderTable(rows) {
   if (!S.loaded) { tb.replaceChildren(h("tr", null, h("td", { colspan: "6" }, h("div", { class: "skel line" })))); return; }
   if (!rows.length) { tb.replaceChildren(h("tr", null, h("td", { colspan: "6", class: "dim", text: "Aramaya uyan çekim yok." }))); return; }
   tb.replaceChildren(...rows.map((r) => {
-    const st = etkin(r), d = durumOf(st), revN = revlerOf(r).length;
+    const st = etkin(r), d = durumOf(st), revN = revlerOf(r).length, w = isOf(r);
     const tr = h("tr", { tabindex: "0" },
       h("td", { class: "name" }, h("div", { class: "who" }, av(r.egitmen), h("div", null, h("b", { text: r.egitmen }), r.sira ? h("small", { text: "#" + r.sira }) : null))),
       h("td", { class: "dim" }, yabanci(r) ? r.dil + " · " : "", cekimAdi(r)),
-      h("td", null, h("span", { class: "pill", style: `--c:${cssVar(d.renk)}`, text: st === "revize" ? d.ad + " · " + ASAMALAR[asamaIdx(asamaOf(r))].kart.toLocaleLowerCase("tr") : d.ad })),
+      h("td", null, h("span", { class: "pill", style: `--c:${cssVar(d.renk)}`, text: d.ad + (w ? " · " + w.ad.toLocaleLowerCase("tr") : st === "revize" ? " · " + ASAMALAR[asamaIdx(asamaOf(r))].kart.toLocaleLowerCase("tr") : "") })),
       h("td", { class: "dim", text: r.teslim ? fmtKisa(r.teslim) : "—" }),
       h("td", { class: "dim", text: revN ? String(revN) : "—" }),
       h("td", { class: "dim", text: fmtGoreli(r.guncelleme) }),
@@ -632,6 +680,7 @@ function setDurum(id, durum) {
     const now = new Date().toISOString();
     r.durum = durum; r.guncelleme = now; r.gecmis.push({ durum, tarih: now });
     if (durum === "revize") r.rev = { asama: "geldi", tarih: now }; else delete r.rev;
+    delete r.is;   // elle taşınınca canlı iş adımı biter
   }, `${r.egitmen} (${cekimAdi(r)}) → ${durumOf(durum).ad}`);
   if (dlg.open && S.current === id) refreshItem();
   if (VIDEOLU.has(durum) && !r.vimeo) openItem(id, { tab: "bilgi", focus: "#f-vimeo" });   // montajlanan videonun Vimeo linki
@@ -689,6 +738,9 @@ function refreshItem(opts = {}) {
     type: "button", style: `--c:${cssVar(d.renk)}`, "aria-pressed": String(st === d.id), disabled: !S.edit,
     title: S.edit ? `${d.ad} aşamasına taşı` : null, onclick: () => setDurum(r.id, d.id),
   }, h("i"), d.ad)));
+  const wi = r && isOf(r);
+  $("#item-now").hidden = !wi;
+  if (wi) $("#item-now").replaceChildren(nowLine(wi));
 
   // sekmeler
   const tabs = $("#item-tabs");
@@ -822,7 +874,7 @@ $("#item-form").addEventListener("submit", (e) => {
   const r = S.current && S.data.cekimler.find((x) => x.id === S.current);
   if (r) {
     mutate(() => {
-      if (r.durum !== val.durum) { r.gecmis.push({ durum: val.durum, tarih: now }); if (val.durum === "revize") r.rev = { asama: "geldi", tarih: now }; else delete r.rev; }
+      if (r.durum !== val.durum) { r.gecmis.push({ durum: val.durum, tarih: now }); if (val.durum === "revize") r.rev = { asama: "geldi", tarih: now }; else delete r.rev; delete r.is; }
       delete r.disk;   // eski "medya başka diskte" alanı artık kullanılmıyor
       Object.assign(r, val, { guncelleme: now });
     }, `${val.egitmen} (${cekimAdi(val)}) güncellendi`);
@@ -1443,6 +1495,8 @@ addEventListener("beforeunload", (e) => { if (S.dirty || S.saving || S.ozelDirty
 // arada bir tazele; düzenleyen kişi de ekibin değişikliklerini görsün (kaydedilmemiş değişiklik ya da açık pencere yokken)
 const tazelenir = () => !document.hidden && S.loaded && $("#lock").hidden && !S.dirty && !S.saving && !document.querySelector("dialog[open]");
 setInterval(() => { if (tazelenir()) load({ quiet: true }); }, 180000);
+// bir videonun üzerinde çalışılırken izleyenler adımı (Renderlanıyor…) daha sık görsün
+setInterval(() => { if (tazelenir() && S.data.cekimler.some(isOf)) load({ quiet: true }); }, 45000);
 setInterval(renderLive, 60000);
 document.addEventListener("visibilitychange", () => { if (tazelenir()) load({ quiet: true }); });
 

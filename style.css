@@ -125,6 +125,36 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 .stat b { display: block; color: var(--ink); font-size: 14.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
 .stat .r { margin-left: auto; font: 500 22px var(--m); letter-spacing: -.02em; flex: none }
 
+/* şu an üzerinde çalışılanlar (herkese) */
+.now-box { display: grid; margin-top: 14px; border-radius: 16px; overflow: hidden; animation: up .5s var(--ease) both;
+  background: linear-gradient(100deg, color-mix(in srgb, var(--st-montajda) 13%, var(--solid)), var(--solid) 60%); border: 1px solid color-mix(in srgb, var(--st-montajda) 32%, transparent); box-shadow: var(--sh) }
+.now-box[hidden] { display: none }
+.now-row { display: flex; align-items: center; gap: 14px; padding: 12px 16px; position: relative; border: 0; background: none; color: inherit; text-align: left; width: 100%; font: inherit; cursor: pointer; transition: background .2s }
+.now-row:hover { background: color-mix(in srgb, var(--st-montajda) 7%, transparent) }
+.now-row + .now-row { border-top: 1px solid color-mix(in srgb, var(--st-montajda) 14%, var(--line)) }
+.now-row .txt { min-width: 0 }
+.now-row .txt b { font-weight: 600; color: var(--st-montajda) }
+.now-row .txt p { margin: 2px 0 0; color: var(--muted); font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis }
+.now-row .sp { flex: 1 }
+.now-row .when { color: var(--faint); font-size: 12px; white-space: nowrap; flex: none }
+.now-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--st-montajda); position: relative; flex: none }
+.now-dot::after { content: ""; position: absolute; inset: -5px; border-radius: 50%; border: 1px solid var(--st-montajda); animation: ping 2s var(--ease) infinite }
+.now-steps { display: flex; gap: 3px; flex: none }
+.now-steps i { width: 16px; height: 4px; border-radius: 2px; background: var(--line-2) }
+.now-steps i.on { background: color-mix(in srgb, var(--st-montajda) 60%, transparent) }
+.now-steps i.now { background: var(--st-montajda); animation: pulse 1.6s ease-in-out infinite }
+.now-bar { position: absolute; left: 0; bottom: 0; height: 2px; width: var(--p); background: var(--st-montajda); transition: width .6s var(--ease) }
+.now-line { position: relative; overflow: hidden; display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 8px 10px; border-radius: 10px; font-size: 12.5px; font-weight: 500; color: var(--st-montajda);
+  background: color-mix(in srgb, var(--st-montajda) 9%, transparent); border: 1px solid color-mix(in srgb, var(--st-montajda) 20%, transparent) }
+.now-line i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; animation: pulse 1.6s ease-in-out infinite }
+.now-line small { margin-left: auto; color: var(--muted); font-weight: 400; white-space: nowrap }
+.now-line.pct::after { content: ""; position: absolute; left: 0; bottom: 0; height: 2px; width: var(--p); background: currentColor }
+#item-now .now-line { margin: 10px 0 0 }
+.card.working { border-color: color-mix(in srgb, var(--st-montajda) 35%, var(--line)) }
+.flow.canli p em { font-style: normal; display: inline-flex; align-items: center; gap: 7px }
+.flow.canli p em i { width: 6px; height: 6px; border-radius: 50%; background: currentColor; animation: pulse 1.6s ease-in-out infinite }
+@media (max-width: 560px) { .now-steps { display: none } }
+
 /* gelen revizeler */
 .alerts { display: grid; margin-top: 14px; border-radius: 16px; overflow: hidden; animation: up .5s var(--ease) both;
   background: linear-gradient(100deg, color-mix(in srgb, var(--st-revize) 12%, var(--solid)), var(--solid) 55%); border: 1px solid color-mix(in srgb, var(--st-revize) 30%, transparent); box-shadow: var(--sh) }
@@ -205,7 +235,7 @@ svg.i { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-widt
 .flow .row i.now { background: var(--st-revize); animation: pulse 1.6s ease-in-out infinite }
 @keyframes pulse { 50% { opacity: .35 } }
 .flow p { margin: 7px 0 0; display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--st-revize); font-weight: 500 }
-.flow p span { color: var(--muted); font-weight: 400 }
+.flow p span { color: var(--muted); font-weight: 400; white-space: nowrap }
 .empty { display: grid; place-items: center; padding: 26px 10px; color: var(--faint); font-size: 12.5px; border: 1px dashed var(--line-2); border-radius: 14px; text-align: center }
 .skel { height: 74px; border-radius: 14px; background: linear-gradient(90deg, var(--hi), color-mix(in srgb, var(--hi) 40%, transparent), var(--hi)); background-size: 200% 100%; animation: sk 1.4s linear infinite }
 .skel.line { height: 16px; border-radius: 6px }
