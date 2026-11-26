@@ -1226,11 +1226,19 @@ async function revPut(path, bytes, message) {
     throw new Error("HTTP " + r.status);
   }
 }
+// Şifreli kayıtlar git blob'u olarak okunur: GitHub'ın "raw" ve contents yanıtları bazı ikili dosyaları
+// UTF-16 metin sanıp UTF-8'e çeviriyordu (kayıt bozuk görünüyordu, aslında depoda sağlamdı).
 async function revGet(path) {
   const y = REV();
-  const r = await fetch(revApi(y, path) + "?ref=" + encodeURIComponent(y.branch || "main"), { headers: revHeaders(y, true), cache: "no-store" });
+  let sha = SHA.get(path);
+  if (!sha) {
+    const m = await fetch(revApi(y, path) + "?ref=" + encodeURIComponent(y.branch || "main"), { headers: revHeaders(y), cache: "no-store" });
+    if (!m.ok) throw new Error("HTTP " + m.status);
+    sha = (await m.json()).sha; SHA.set(path, sha);
+  }
+  const r = await fetch(`${CFG.api}/repos/${y.repo}/git/blobs/${sha}`, { headers: revHeaders(y), cache: "force-cache" });
   if (!r.ok) throw new Error("HTTP " + r.status);
-  return new Uint8Array(await r.arrayBuffer());
+  return b64bytes((await r.json()).content);
 }
 async function revDel(path) {
   const y = REV(), sha = SHA.get(path);
